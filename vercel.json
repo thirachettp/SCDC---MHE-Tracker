@@ -1,14 +1,8 @@
 {
   "regions": ["sin1"],
   "functions": {
-    "api/index.py": {
-      "maxDuration": 60,
-      "includeFiles": "{app,static}/**"
-    }
+    "app/main.py": { "maxDuration": 60 }
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
-  ],
   "crons": [
     { "path": "/api/cron/sync", "schedule": "0 23 * * *" }
   ]
