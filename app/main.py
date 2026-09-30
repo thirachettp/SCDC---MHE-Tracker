@@ -10,9 +10,12 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
 
-from . import auth, drive, parsing, reconcile
+from . import auth, drive, gas, parsing, reconcile
+from . import db as dbmod
+from urllib.parse import urlsplit
 from .db import conn, get_state, migrate
 from .version import VERSION
 
@@ -35,8 +38,12 @@ class AppError(HTTPException):
         super().__init__(status_code=status, detail=msg)
 
 
-@app.exception_handler(HTTPException)
-async def http_err(_: Request, exc: HTTPException):
+@app.exception_handler(StarletteHTTPException)   # also catches router 404/405
+async def http_err(req: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404 and not isinstance(exc, AppError):
+        return JSONResponse({"error": "ไม่พบ API นี้", "path": req.url.path}, status_code=404)
+    if exc.status_code == 405:
+        return JSONResponse({"error": "Method not allowed", "path": req.url.path}, status_code=405)
     return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
 
 
@@ -222,6 +229,8 @@ def meta(c=Depends(db, scope="function")):
 # ========================================================================= sync
 @app.post("/api/sync/auto")
 def sync_auto(u=Depends(current_user)):
+    if gas.configured():            # Apps Script pushes on its own schedule
+        return {"ran": False, "reason": "push_mode"}
     return drive.sync(conn, force=False)
 
 
@@ -230,6 +239,8 @@ def sync_cron(authorization: str = Header(default="")):
     if not CRON_SECRET or authorization != f"Bearer {CRON_SECRET}":
         raise AppError(401, "unauthorized")
     boot()
+    if gas.configured():
+        return gas.trigger() if gas.GAS_WEBAPP_URL else {"ran": False, "reason": "push_mode"}
     return drive.sync(conn, force=True)
 
 
@@ -695,7 +706,10 @@ def import_status(u=Depends(admin_user), c=Depends(db, scope="function")):
     except json.JSONDecodeError:
         pass
     return {
-        "configured": drive.configured(), "service_account": sa_email,
+        "configured": drive.configured() or gas.configured(),
+        "mode": "apps_script" if gas.configured() else ("service_account" if drive.configured() else ""),
+        **gas.status(c),
+        "service_account": sa_email,
         "auto_minutes": drive.AUTO_SYNC_MINUTES,
         "last_sync_at": get_state(c, "last_sync_at"), "last_run_at": get_state(c, "last_run_at"),
         "last_error": get_state(c, "last_sync_error", ""),
@@ -707,7 +721,69 @@ def import_status(u=Depends(admin_user), c=Depends(db, scope="function")):
 
 @app.post("/api/admin/sync")
 def sync_now(u=Depends(admin_user)):
-    return drive.sync(conn, force=True)
+    if gas.configured():
+        return gas.trigger()
+    if drive.configured():
+        return drive.sync(conn, force=True)
+    return {"ran": False, "reason": "not_configured"}
+
+
+# ------------------------------------------------------- Apps Script push mode
+class PushFile(BaseModel):
+    id: str
+    name: str = ""
+    modified: Optional[str] = None
+
+
+class PushCheckIn(BaseModel):
+    files: List[PushFile]
+
+
+class PushPlanIn(PushFile):
+    content_b64: str
+
+
+class PushDoneIn(BaseModel):
+    seen: int = 0
+    pushed: List[dict] = []
+    errors: List[str] = []
+    pending: int = 0
+
+
+def _push_auth(x_push_secret: str = Header(default="")):
+    if not gas.configured():
+        raise AppError(503, "PLAN_PUSH_SECRET ยังไม่ได้ตั้งค่าบน Vercel (ต้องยาวอย่างน้อย 16 ตัวอักษร)")
+    if not gas.secret_ok(x_push_secret):
+        raise AppError(401, "รหัส PUSH_SECRET ไม่ตรงกับที่ตั้งไว้บน Vercel")
+    return True
+
+
+@app.post("/api/push/plan/check")
+def push_check(body: PushCheckIn, ok=Depends(_push_auth), c=Depends(db, scope="function")):
+    files = [f.model_dump() for f in body.files[:500]]
+    return {"needed": gas.needed(c, files)}
+
+
+@app.post("/api/push/plan")
+def push_plan(body: PushPlanIn, ok=Depends(_push_auth), c=Depends(db, scope="function")):
+    import base64
+    import binascii
+    try:
+        content = base64.b64decode(body.content_b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise AppError(400, "content_b64 ไม่ถูกต้อง")
+    if len(content) > MAX_UPLOAD:
+        raise AppError(413, "ไฟล์ใหญ่เกิน 4 MB")
+    mt = gas.ts(body.modified) or datetime.now(timezone.utc)
+    res = drive.import_plan_content(c, drive_file_id=body.id, name=body.name or body.id,
+                                    modified_time=mt, content=content)
+    return res
+
+
+@app.post("/api/push/plan/done")
+def push_done(body: PushDoneIn, ok=Depends(_push_auth), c=Depends(db, scope="function")):
+    gas.record_run(c, body.model_dump())
+    return {"ok": True}
 
 
 async def _read_upload(f: UploadFile):
@@ -966,6 +1042,48 @@ def reconcile_export(date_from: str = "", date_to: str = "", leg: str = "ret", b
     return _xlsx(wb, f"Reconcile_{leg}_{df:%Y%m%d}-{dt:%Y%m%d}.xlsx")
 
 
+# ======================================================================= health
+@app.get("/api/health")
+def health(request: Request):
+    """Deployment check. Shows WHICH settings exist, never their values."""
+    sk = os.environ.get("SECRET_KEY", "")
+    out = {
+        "version": VERSION, "path": request.url.path,
+        "env": {
+            "DATABASE_URL": bool(dbmod.DATABASE_URL),
+            "DATABASE_URL_from": dbmod.DB_ENV_NAME or "(none)",
+            "DATABASE_host": _db_host(),
+            "DATABASE_URL_pooled": "-pooler" in dbmod.DATABASE_URL,
+            "SECRET_KEY_ok": len(sk) >= 32,
+            "ADMIN_EMAIL": bool(ADMIN_EMAIL),
+            "CRON_SECRET": bool(CRON_SECRET),
+            "DRIVE_configured": drive.configured(),
+            "PUSH_configured": gas.configured(),
+            "GAS_WEBAPP_URL": bool(gas.GAS_WEBAPP_URL),
+            "VERCEL_REGION": os.environ.get("VERCEL_REGION", ""),
+        },
+    }
+    try:
+        boot()
+        with conn() as c:
+            out["db"] = "ok"
+            out["users"] = c.execute("SELECT count(*)::int n FROM users").fetchone()["n"]
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        pw = urlsplit(dbmod.DATABASE_URL).password if dbmod.DATABASE_URL else None
+        if pw:
+            msg = msg.replace(pw, "***")
+        out["db"] = f"error: {type(e).__name__}: {msg[:300]}"
+    return out
+
+
+def _db_host():
+    try:
+        return urlsplit(dbmod.DATABASE_URL).hostname or ""
+    except ValueError:
+        return "(invalid URL)"
+
+
 # ======================================================================== pages
 @app.get("/", response_class=HTMLResponse)
 @app.get("/index.html", response_class=HTMLResponse)
@@ -991,3 +1109,12 @@ def icon():
            'stroke-linejoin="round"><path d="M10 18h26v20H10z M36 26h9l7 7v5H36z"/><circle cx="19" cy="44" r="5"/>'
            '<circle cx="44" cy="44" r="5"/></g></svg>')
     return HTMLResponse(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+
+
+# SPA fallback: any non-API GET path serves the app (e.g. /login, /index, deep links)
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):
+    last = full_path.rsplit("/", 1)[-1]
+    if full_path.startswith("api/") or full_path == "api" or "." in last:   # API or a file like favicon.ico
+        raise StarletteHTTPException(404)
+    return index()

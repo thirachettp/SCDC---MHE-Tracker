@@ -11,20 +11,21 @@ Version stamp: `app/version.py` (รูปแบบ `TTLOD.yymmdd.hhmm`)
 
 ```
 public/             ไฟล์ static ที่เปิดให้เข้าถึงได้ (มีโฟลเดอร์นี้เพื่อไม่ให้ Vercel เสิร์ฟ source code เป็นไฟล์ static)
-api/index.py        entrypoint ของ Vercel (ทุก route rewrite มาที่นี่)
-app/main.py         API ทั้งหมด + auth + bootstrap admin
+app/main.py         entrypoint ของ Vercel (FastAPI) + API ทั้งหมด + auth + bootstrap admin
 app/db.py           schema + auto-migration (รันเองตอน cold start)
 app/auth.py         hash รหัสผ่าน (PBKDF2) + token
 app/drive.py        ดึงไฟล์แผนโหลดจาก Google Drive
 app/parsing.py      อ่าน Excel แผนโหลด / ไฟล์ MHE
 app/reconcile.py    ตรรกะ Reconcile
+app/gas.py          รับไฟล์แผนโหลดจาก Apps Script
+apps_script/Code.gs สคริปต์ Google Apps Script (วางใน script.google.com)
 static/index.html   หน้าจอทั้งหมด
 ```
 
 ## Deploy (Vercel + Neon)
 
 1. **Neon** – สร้าง project region **Singapore (ap-southeast-1)** แล้วคัดลอก connection string แบบ **Pooled** (host มี `-pooler`)
-2. **Vercel** – import repo นี้ (Framework: Other) แล้วตั้ง Environment Variables ตาม `.env.example`
+2. **Vercel** – import repo นี้ (Framework Preset: **FastAPI** — Vercel ตรวจเจอเอง) แล้วตั้ง Environment Variables ตาม `.env.example`
    - `DATABASE_URL`, `SECRET_KEY` (≥ 32 ตัวอักษร), `ADMIN_EMAIL` — จำเป็น
    - `CRON_SECRET` — ใส่ค่าสุ่มอะไรก็ได้ Vercel จะส่งให้ cron รอบ 06:00 เอง
    - Region ถูกล็อกเป็น `sin1` ใน `vercel.json` แล้ว (ให้อยู่ใกล้ Neon)
@@ -33,21 +34,30 @@ static/index.html   หน้าจอทั้งหมด
    เข้าสู่ระบบด้วยรหัสนั้น ระบบจะบังคับให้ตั้งรหัสผ่านใหม่ทันที
 4. ไม่มีบัญชีทดสอบ/เดโมในระบบ ผู้ใช้อื่นสมัครเองได้ (ได้สิทธิ์ User) แล้ว Admin ตั้งเป็น Admin ได้ในเมนู "ผู้ใช้"
 
-## เชื่อม Google Drive (ไฟล์แผนโหลด)
+## เชื่อม Google Drive ด้วย Apps Script (แนะนำ — ไม่ต้องใช้ Google Cloud)
 
-1. Google Cloud Console → สร้าง project → เปิด **Google Drive API**
-2. สร้าง **Service Account** → Keys → Add key → JSON → ดาวน์โหลด
-3. เปิดโฟลเดอร์ Drive ที่ automate เอาไฟล์ไปวาง → **Share** ให้อีเมลของ service account (สิทธิ์ Viewer)
-4. ตั้ง env บน Vercel
-   - `DRIVE_FOLDER_ID` = ส่วนท้าย URL ของโฟลเดอร์ (`drive.google.com/drive/folders/<ID>`)
-   - `GOOGLE_SERVICE_ACCOUNT_JSON` = เนื้อหาไฟล์ JSON ทั้งก้อน
-5. Redeploy → เมนู "นำเข้า" กด **Sync ตอนนี้** เพื่อทดสอบ
+สคริปต์ `apps_script/Code.gs` ทำงานด้วยบัญชี Google ของคนติดตั้ง ทุก 10 นาทีจะดูโฟลเดอร์แผนโหลด
+แล้วส่งเฉพาะไฟล์ใหม่/ไฟล์ที่ถูกแก้เข้าแอป ตัวแอปยังอยู่บน Vercel + Neon เหมือนเดิม
 
-การดึงข้อมูล
-- อัตโนมัติเมื่อมีคนเปิดแอปและข้อมูลเก่ากว่า `AUTO_SYNC_MINUTES` (ค่าเริ่มต้น 10 นาที)
-- รอบสำรองทุกวัน 06:00 (Vercel Cron, `0 23 * * *` UTC)
-- อ่านเฉพาะไฟล์ใหม่/ไฟล์ที่ถูกแก้ ภายใน `PLAN_LOOKBACK_DAYS` วันล่าสุด; ถ้า Load เดียวกันอยู่หลายไฟล์ ใช้ไฟล์ที่แก้ไขล่าสุด
-- ถ้ายังไม่ได้ตั้งค่า Drive Admin อัปโหลดไฟล์แผนโหลดเองได้ในเมนู "นำเข้า"
+1. **สุ่มรหัสลับ** ยาว 16 ตัวขึ้นไป แล้วตั้ง env บน Vercel: `PLAN_PUSH_SECRET=<รหัสนั้น>` → Redeploy
+2. ใช้บัญชี Google ที่เปิดโฟลเดอร์ TSP_Rawdata ได้ (ควรเป็นบัญชีที่ใช้ระยะยาว) เข้า <https://script.google.com> → **New project** → ตั้งชื่อ `MHE Plan Sync`
+3. ลบโค้ดเดิมใน `Code.gs` → วางเนื้อหาไฟล์ `apps_script/Code.gs` ทั้งหมด → แก้ 2 บรรทัดใน `CONFIG`: `APP_URL` (URL แอป) และ `PUSH_SECRET` (ค่าเดียวกับข้อ 1) → Save
+4. เลือกฟังก์ชัน **testConnection** → Run → กด **Review permissions** แล้วอนุญาต
+   (ถ้าขึ้น "Google hasn't verified this app" → Advanced → Go to MHE Plan Sync) ดูผลที่ Execution log ควรเห็น `เชื่อมแอปได้ ✓`
+5. เลือกฟังก์ชัน **setup** → Run → สร้าง trigger ทุก 10 นาทีและซิงค์รอบแรก
+6. (สำหรับปุ่ม **Sync ตอนนี้** ในแอป) **Deploy › New deployment** → ประเภท **Web app** → Execute as: **Me**, Who has access: **Anyone** → Deploy
+   คัดลอก URL ที่ลงท้าย `/exec` ไปตั้ง env บน Vercel: `GAS_WEBAPP_URL=<URL>` → Redeploy
+   (URL นี้ปลอดภัย เพราะสคริปต์จะทำงานเฉพาะเมื่อแนบรหัส PUSH_SECRET ที่ถูกต้อง)
+
+ตรวจผลได้ที่เมนู **นำเข้า** ในแอป ถ้าไม่ได้รับข้อมูลจากสคริปต์นานเกิน 60 นาทีจะมีแถบเตือน
+(ดูประวัติการทำงานของสคริปต์ได้ที่ script.google.com › Executions)
+
+- ถ้าแก้โค้ดสคริปต์ภายหลัง: Deploy › Manage deployments › แก้ไข › Version: New version (URL เดิมใช้ต่อได้)
+- เงื่อนไขไฟล์: อยู่ในโฟลเดอร์โดยตรง, ชื่อขึ้นต้นด้วย `Summary plan load daily report` (ไม่สนช่องว่าง/ขีดล่าง/ตัวพิมพ์), แก้ไขภายใน 14 วัน, เป็น .xlsx หรือ Google Sheet
+
+### ทางเลือก: Service account (Google Cloud)
+ถ้าไม่ได้ตั้ง `PLAN_PUSH_SECRET` แอปจะใช้ `DRIVE_FOLDER_ID` + `GOOGLE_SERVICE_ACCOUNT_JSON` ดึงเอง
+(ต้องเปิด Google Drive API และแชร์โฟลเดอร์ให้อีเมล service account) — ดึงเมื่อมีคนเปิดแอปและข้อมูลเก่ากว่า 10 นาที + รอบสำรอง 06:00
 
 ## Cost Center
 

@@ -939,23 +939,26 @@ function vImport(){
       ${f.error?`<div style="font-size:12px;color:var(--bad-ink)">${esc(f.error)}</div>`:""}</div></div>`).join("");
   return `${hdrMain("นำเข้าแผนโหลด")}
   <div class="main" style="gap:14px">
-    ${!M.configured?`<div class="banner warn">${I.warn}<div>ยังไม่ได้ตั้งค่าการเชื่อม Google Drive (DRIVE_FOLDER_ID / GOOGLE_SERVICE_ACCOUNT_JSON) — ระหว่างนี้อัปโหลดไฟล์แผนโหลดเองได้ด้านล่าง</div></div>`:""}
+    ${!M.configured?`<div class="banner warn">${I.warn}<div>ยังไม่ได้เชื่อม Google Drive — ตั้งค่า Apps Script ตามคู่มือใน README (env <b>PLAN_PUSH_SECRET</b>) ระหว่างนี้อัปโหลดไฟล์แผนโหลดเองได้ด้านล่าง</div></div>`:""}
+    ${M.stale?`<div class="banner warn">${I.warn}<div><b>ไม่ได้รับข้อมูลจาก Apps Script นานเกิน ${M.stale_minutes} นาที</b> — ตรวจว่า trigger ของสคริปต์ยังทำงาน (Apps Script › Executions) และบัญชีที่ติดตั้งยังเข้าโฟลเดอร์ได้</div></div>`:""}
     ${M.last_error?`<div class="banner bad">${I.warn}<div><b>ซิงค์ล่าสุดผิดพลาด:</b> ${esc(M.last_error)}</div></div>`:""}
     <div class="card" style="display:flex;flex-direction:column;gap:12px">
       <div class="row" style="gap:12px"><div class="legicon" style="width:44px;height:44px;border-radius:12px;background:var(--brand-soft);color:var(--brand)">${I.folder}</div>
-        <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700">Google Drive · โฟลเดอร์แผนโหลด</div>
+        <div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700">Google Drive · โฟลเดอร์แผนโหลด${M.mode==="apps_script"?" (Apps Script)":""}</div>
         <div class="hint">ซิงค์ล่าสุด ${M.last_sync_at?fmtDT(M.last_sync_at)+" · "+ago(M.last_sync_at):"ยังไม่เคย"}</div></div></div>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;text-align:center">
         <div style="background:var(--bg);border-radius:10px;padding:8px"><div class="mono" style="font-size:20px;font-weight:700">${M.files_today}</div><div class="hint">ไฟล์วันนี้</div></div>
         <div style="background:var(--bg);border-radius:10px;padding:8px"><div class="mono" style="font-size:20px;font-weight:700">${M.loads_today}</div><div class="hint">Load วันนี้</div></div>
         <div style="background:var(--bg);border-radius:10px;padding:8px"><div class="mono" style="font-size:20px;font-weight:700">${M.errors_today}</div><div class="hint">ผิดพลาด</div></div></div>
       <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--bg);border-radius:10px;font-size:13px;color:var(--ink2)">
-        <div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--brand);flex-shrink:0"></span><span><b>ดึงอัตโนมัติ</b> เมื่อมีคนเปิดแอป และข้อมูลเก่ากว่า ${M.auto_minutes} นาที</span></div>
-        <div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--brand);flex-shrink:0"></span><span><b>รอบสำรอง</b> ทุกวัน 06:00 แม้ไม่มีคนเปิดแอป</span></div>
+        ${M.mode==="apps_script" ? `<div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--brand);flex-shrink:0"></span><span><b>Apps Script ส่งไฟล์เข้ามาเองทุก 10 นาที</b> ไม่ต้องมีคนเปิดแอป</span></div>
+        ${M.webapp_configured?"":`<div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--action);flex-shrink:0"></span><span>ปุ่ม Sync ตอนนี้ต้องตั้ง env <b>GAS_WEBAPP_URL</b> ก่อน</span></div>`}`
+        : `<div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--brand);flex-shrink:0"></span><span><b>ดึงอัตโนมัติ</b> เมื่อมีคนเปิดแอป และข้อมูลเก่ากว่า ${M.auto_minutes} นาที</span></div>
+        <div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--brand);flex-shrink:0"></span><span><b>รอบสำรอง</b> ทุกวัน 06:00 แม้ไม่มีคนเปิดแอป</span></div>`}
         <div class="row"><span style="width:8px;height:8px;border-radius:4px;background:var(--action);flex-shrink:0"></span><span>อ่านเฉพาะไฟล์ใหม่หรือไฟล์ที่ถูกแก้ ไม่อ่านซ้ำ</span></div>
-        ${M.service_account?`<div class="hint" style="word-break:break-all">แชร์โฟลเดอร์ให้: <span class="mono">${esc(M.service_account)}</span></div>`:""}
+        ${M.mode==="service_account" && M.service_account?`<div class="hint" style="word-break:break-all">แชร์โฟลเดอร์ให้: <span class="mono">${esc(M.service_account)}</span></div>`:""}
       </div>
-      <button class="btn primary" data-act="sync-now" ${M.configured?"":"disabled"}>${I.refresh} Sync ตอนนี้</button>
+      <button class="btn primary" data-act="sync-now" ${M.configured && !(M.mode==="apps_script" && !M.webapp_configured)?"":"disabled"}>${I.refresh} Sync ตอนนี้</button>
       <label class="btn outline" style="height:46px;font-size:15px">${I.up} อัปโหลดไฟล์แผนโหลดเอง<input type="file" accept=".xlsx" data-in="planfile" class="sr"></label>
     </div>
     <div style="font-size:16px;font-weight:700">ประวัติการนำเข้า</div>
@@ -1180,7 +1183,9 @@ const A = {
     try{ const r = await api("/api/admin/sync", {method:"POST"});
       if(r.error) toast("ซิงค์ผิดพลาด: " + r.error, true);
       else if(r.ran === false) toast(r.reason==="running"?"กำลังซิงค์อยู่ในอีกเครื่อง ลองใหม่อีกสักครู่":"ยังไม่ได้ตั้งค่า Google Drive", true);
-      else toast(`ซิงค์แล้ว · ไฟล์ใหม่ ${r.imported.length}${r.pending?` · เหลืออีก ${r.pending} ไฟล์ (กดอีกครั้ง)`:""}`);
+      else if(r.note) toast(r.note);
+      else if(r.errors && r.errors.length) toast(`ซิงค์แล้ว · ไฟล์ใหม่ ${(r.imported||[]).length} · ผิดพลาด ${r.errors.length}`, true);
+      else toast(`ซิงค์แล้ว · ไฟล์ใหม่ ${(r.imported||[]).length}${r.pending?` · เหลืออีก ${r.pending} ไฟล์ (กดอีกครั้ง)`:""}`);
     }catch(e){ toast(e.message, true); }
     S.imp = null; render(); },
   "user-menu": el => userMenu(+el.dataset.id),
