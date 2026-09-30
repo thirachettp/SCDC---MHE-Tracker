@@ -114,11 +114,13 @@ def import_plan_content(c, *, drive_file_id, name, modified_time, content):
     with c.cursor() as cur:
         cur.executemany(
             """INSERT INTO plan_lines(file_id, load_no, load_key, trip_no, trip_key, truck_id, seq,
-                   store_code, store_name, plan_pallet, plan_rollcage, plan_boxes, plan_date)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   store_code, store_name, plan_pallet, plan_rollcage, plan_boxes, plan_date,
+                   truck_type, transporter)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             [(fid, l["load_no"], parsing.doc_key(l["load_no"]), l["trip_no"],
               parsing.doc_key(l["trip_no"]), l["truck_id"], l["seq"], l["store_code"],
-              l["store_name"], l["plan_pallet"], l["plan_rollcage"], l["plan_boxes"], plan_date)
+              l["store_name"], l["plan_pallet"], l["plan_rollcage"], l["plan_boxes"], plan_date,
+              l.get("truck_type", ""), l.get("transporter", ""))
              for l in lines])
         stores = {}
         for l in lines:

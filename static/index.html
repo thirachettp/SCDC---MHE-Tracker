@@ -169,6 +169,51 @@ select.inp{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns=
 .linkbtn{background:none;border:0;color:var(--brand);font-weight:700;padding:0;font-size:inherit}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (min-width:600px){ #app{border-left:1px solid var(--line);border-right:1px solid var(--line)} }
+/* v4: guide, entry card, labelled cells, wide (PC) layout, reconcile table */
+.guide-art{width:96px;height:96px;border-radius:28px;display:flex;align-items:center;justify-content:center;margin:8px auto 4px}
+.guide-art svg{width:48px;height:48px}
+.guide-dots{display:flex;gap:6px;justify-content:center}
+.guide-dots span{width:8px;height:8px;border-radius:4px;background:var(--line2)}
+.guide-dots span.on{width:22px;background:var(--brand)}
+.guide ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.55;color:var(--ink2)}
+.tripcard{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
+.tripcard .kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+.tripcard .k{font-size:11px;color:var(--muted)}
+.tripcard .v{font-size:15px;font-weight:700;font-family:var(--mono);word-break:break-all}
+.doorbtn{width:84px;height:84px;border-radius:16px;border:2px solid var(--amber);background:#FDF3E7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.doorbtn.empty{border-style:dashed;background:#fff}
+.doorbtn .k{font-size:11px;font-weight:700;color:var(--warn-ink)}
+.doorbtn .v{font-size:28px;font-weight:700;font-family:var(--mono);color:var(--ink)}
+.cellbox{display:flex;flex-direction:column;align-items:stretch;border:1px solid var(--line2);border-radius:10px;background:#fff;overflow:hidden;cursor:text}
+.cellbox .cl{font-size:10px;font-weight:700;color:var(--muted);text-align:center;padding-top:4px;letter-spacing:.2px}
+.cellbox .cell{border:0;height:38px;border-radius:0;background:transparent}
+.cellbox .cell:focus{outline:none}
+.cellbox:focus-within{outline:2.5px solid var(--brand);outline-offset:-1px}
+.cellbox.filled{background:#F7FBFA;border-color:var(--brand-line)}
+.cellbox.diff{background:var(--warn-bg);border-color:var(--warn-line)}
+.cellbox.diff .cl{color:var(--warn-ink)}
+#app.wide{max-width:1320px}
+@media (min-width:1024px){
+  #app.wide .main{padding:20px 28px}
+  #app.wide .list.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+  #app.wide .nav{max-width:1320px}
+  .rc-top{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;align-items:start}
+  .rc-kpis{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px;align-items:start}
+  .only-mobile{display:none !important}
+}
+@media (max-width:1023px){ .only-pc{display:none !important} }
+.xtable{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:13px}
+.xtable th{background:var(--soft);text-align:left;font-weight:700;color:var(--ink2);padding:10px 10px;position:sticky;top:0;white-space:nowrap;cursor:pointer;user-select:none}
+.xtable td{padding:9px 10px;border-top:1px solid #ECE8E1;vertical-align:middle}
+.xtable tr:hover td{background:#FBFAF7}
+.xtable td.n{text-align:right;font-family:var(--mono);font-weight:600}
+.xtable tr.resolved td{opacity:.6}
+.catchip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:var(--blue-bg);color:var(--blue-ink);white-space:nowrap}
+.catchip.none{background:var(--soft);color:var(--muted);font-weight:500}
+.radio-list{display:flex;flex-wrap:wrap;gap:8px}
+.radio-list button{height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line2);background:#fff;font-size:14px}
+.radio-list button.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}
+
 </style>
 </head>
 <body>
@@ -367,7 +412,9 @@ function statusPill(complete){ return complete ? `<span class="pill ok">บั�
 // ------------------------------------------------------------------ render
 function render(){
   const app = $("#app");
-  if(!S.user){
+  if(S.view === "guide"){
+    app.innerHTML = vGuide();
+  } else if(!S.user){
     app.innerHTML = S.view === "register" ? vRegister() : vLogin();
   } else if(S.user.must_change_password){
     app.innerHTML = vChangePw(true);
@@ -376,6 +423,7 @@ function render(){
     if(!isAdmin() && ["recon","import","users"].includes(S.view)) S.view = "leg";
     app.innerHTML = (views[S.view] || vLeg)();
   }
+  app.classList.toggle("wide", !!S.user && ["recon","review","import","users"].includes(S.view));
   after();
 }
 function after(){
@@ -384,13 +432,17 @@ function after(){
 }
 
 // ================================================================== auth views
+function domain(){ return (S.meta && S.meta.email_domain) || "central.co.th"; }
 function vLogin(){
   return `<div class="login-top"><div class="brandmark" style="color:var(--dark)">${I.truckBig}</div>
     <div style="font-size:28px;font-weight:700;line-height:1.2">Summary Trip MHE</div>
     <div style="font-size:15px;color:#C4D6D3;line-height:1.5">บันทึกจำนวน Pallet · Totebox · Rollcage · Box ที่เข้า–ออกคลัง รายสาขา</div></div>
   <form class="main" style="padding:28px 24px;gap:16px" data-form="login" novalidate>
-    <div style="font-size:22px;font-weight:700">เข้าสู่ระบบ</div>
-    <div class="field"><label class="lbl" for="lE">อีเมล</label><input id="lE" name="email" type="email" class="inp" autocomplete="username" required></div>
+    <div class="row between"><div style="font-size:22px;font-weight:700">เข้าสู่ระบบ</div>
+      <button type="button" class="btn sm ghost" data-act="guide">${I.info} วิธีใช้งาน</button></div>
+    <div class="field"><label class="lbl" for="lE">อีเมล หรือ รหัสพนักงาน</label>
+      <input id="lE" name="email" class="inp" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="เช่น trthirachet หรือ 12345" required>
+      <div class="hint" style="margin-top:4px">พิมพ์แค่ชื่อหน้าอีเมลได้ ไม่ต้องพิมพ์ @${esc(domain())}</div></div>
     <div class="field"><label class="lbl" for="lP">รหัสผ่าน</label><input id="lP" name="password" type="password" class="inp" autocomplete="current-password" required></div>
     <label class="row" style="font-size:14px;color:var(--ink2);min-height:44px"><input type="checkbox" name="remember" checked style="width:20px;height:20px;accent-color:var(--brand)"> จดจำการเข้าสู่ระบบบนเครื่องนี้</label>
     <button class="btn primary" type="submit" style="height:54px;font-size:17px">เข้าสู่ระบบ</button>
@@ -404,7 +456,13 @@ function vRegister(){
   <form class="main" style="padding:24px;gap:14px" data-form="register" novalidate>
     <div class="field"><label class="lbl" for="rN">ชื่อที่แสดง</label><input id="rN" name="display_name" class="inp" maxlength="60" placeholder="เช่น Bank" required>
       <div class="hint" style="margin-top:4px">ใช้เป็น "ชื่อผู้กรอก" ในทุกการบันทึก</div></div>
-    <div class="field"><label class="lbl" for="rE">อีเมล</label><input id="rE" name="email" type="email" class="inp" autocomplete="username" required></div>
+    <div class="field"><label class="lbl" for="rId">รหัสพนักงาน</label><input id="rId" name="employee_id" class="inp" maxlength="20" autocapitalize="characters" spellcheck="false" placeholder="เช่น 12345" required>
+      <div class="hint" style="margin-top:4px">ใช้เข้าสู่ระบบแทนอีเมลได้</div></div>
+    <div class="field"><label class="lbl" for="rE">อีเมล</label>
+      <div class="search" style="height:52px;background:#fff;border-radius:12px;padding-right:12px">
+        <input id="rE" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="ชื่อหน้าอีเมล" required data-in="regemail" style="font-size:16px">
+        <span id="rEsfx" class="hint" style="white-space:nowrap;font-size:14px">@${esc(domain())}</span></div>
+      <div class="hint" style="margin-top:4px">ถ้าใช้อีเมลโดเมนอื่น พิมพ์อีเมลเต็มได้เลย</div></div>
     <div class="field" id="ccField"${ccs.length?"":' style="display:none"'}><label class="lbl" for="rC">Cost Center</label>
       <select id="rC" name="cost_center" class="inp"><option value="">— เลือก Cost Center —</option>${ccs.map(c=>`<option value="${esc(c.code)}">${esc(ccLabel(c.code,c.name))}</option>`).join("")}</select></div>
     <div class="field"><label class="lbl" for="rP">รหัสผ่าน</label><input id="rP" name="password" type="password" class="inp" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร" required></div>
@@ -414,6 +472,44 @@ function vRegister(){
     <div style="text-align:center;font-size:15px;color:var(--muted)">มีบัญชีแล้ว? <button type="button" class="linkbtn" data-act="to-login">เข้าสู่ระบบ</button></div>
   </form>`;
 }
+
+// ---------------------------------------------------------------- guide
+const GUIDE = [
+  {c:"var(--brand)", bg:"var(--brand-soft)", ic:"truckBig", t:"ยินดีต้อนรับ", d:"แอปนี้ใช้บันทึกจำนวน MHE ที่ขึ้น–ลงรถ แยกรายสาขา",
+   li:["<b>Pallet · Totebox · Rollcage · Box</b>","ใช้บนมือถือได้เลย ไม่ต้องติดตั้ง","ทำตาม 4 ขั้นง่ายๆ ในหน้าถัดไป"]},
+  {c:"#2C3A73", bg:"var(--blue-bg)", ic:"users", t:"สมัคร และเข้าสู่ระบบ", d:"ทำครั้งแรกครั้งเดียว",
+   li:["สมัครด้วย <b>ชื่อ · รหัสพนักงาน · อีเมลบริษัท · Cost Center</b>","ครั้งต่อไป พิมพ์แค่ <b>ชื่อหน้าอีเมล</b> หรือ <b>รหัสพนักงาน</b>","ติ๊ก “จดจำการเข้าสู่ระบบ” จะไม่ต้องเข้าใหม่ทุกวัน"]},
+  {c:"var(--warn-ink)", bg:"var(--warn-bg)", ic:"truckBack", t:"① เลือกขา", d:"เลือกว่ากำลังบันทึกเที่ยวไหน",
+   li:["<b>ขากลับเข้าคลัง</b> = งานหลักของ LP","<b>ขาออกจากคลัง</b> = ข้อมูลตั้งต้น ใช้เทียบตอนรถกลับ"]},
+  {c:"var(--brand)", bg:"var(--brand-soft)", ic:"search", t:"② พิมพ์เลข Trip / Load", d:"พิมพ์จากตัวแรก รายการจะกรองให้เอง",
+   li:["แตะรายการที่ตรงกับใบงาน","ป้าย <b>มีขาออกแล้ว</b> = มีตัวเลขตั้งต้นให้เทียบ","ถ้าไม่มีในแผน กด <b>ใช้เป็นเลขใหม่</b> แล้วเพิ่มสาขาเอง"]},
+  {c:"var(--action)", bg:"#FBEEDD", ic:"edit", t:"③ กรอกจำนวน", d:"ตรวจการ์ดรถด้านบนก่อน แล้วกรอกทีละสาขา",
+   li:["ตรวจ <b>ทะเบียนรถ · ประเภทรถ</b> และกด <b>Door</b> เพื่อใส่ประตู","กรอกตัวเลขในช่องที่มีชื่อกำกับ ช่องว่าง = 0","ตัวเลขเล็ก <b>ออก 3</b> = ขาออก · ช่อง<span style='background:var(--warn-bg);padding:0 4px;border-radius:4px'>สีส้ม</span> = ไม่เท่าขาออก",
+       "ของมาไม่เรียง? พิมพ์เลขสาขาในช่อง <b>กรองเลขสาขา</b>",
+       `ปุ่ม <span style="display:inline-flex;vertical-align:-3px">${I.comment}</span> ใส่ Comment · <span style="display:inline-flex;vertical-align:-3px;color:#A33A2A">${I.trash}</span> ลบสาขา (บันทึกเป็น 0) · <b>+ เพิ่มสาขา</b>`]},
+  {c:"var(--ok-ink)", bg:"var(--ok-bg)", ic:"check", t:"④ ตรวจสรุป แล้วยืนยัน", d:"ระบบสรุปให้ดูก่อนทุกครั้ง",
+   li:["ดูจำนวนรวม สาขาที่ยังไม่กรอก และสาขาที่ไม่เท่าขาออก","กด <b>ยืนยันบันทึก</b> — ยังไม่ครบก็บันทึกได้ กลับมากรอกต่อได้","บันทึก Trip เดิมซ้ำ = แก้ไข ระบบเก็บประวัติว่าใครแก้อะไร"]},
+  {c:"var(--ink2)", bg:"var(--soft)", ic:"info", t:"คำถามที่พบบ่อย", d:"",
+   li:["<b>ลืมรหัสผ่าน?</b> แจ้ง Admin ให้รีเซ็ต จะได้รหัสชั่วคราว","<b>เน็ตหลุดระหว่างกรอก?</b> ข้อมูลเก็บไว้ในเครื่อง เปิด Trip เดิมจะกู้คืนให้","<b>สองคนกรอก Trip เดียวกัน?</b> ระบบจะเตือนให้โหลดข้อมูลล่าสุดก่อน",
+       "<b>อยากได้ไอคอนบนมือถือ?</b> เปิดเว็บใน Chrome/Safari › “เพิ่มไปยังหน้าจอหลัก”"]},
+];
+function vGuide(){
+  const i = Math.max(0, Math.min(S.guideStep || 0, GUIDE.length - 1)), g = GUIDE[i], last = i === GUIDE.length - 1;
+  return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">วิธีใช้งาน</div><div class="s">${i+1} / ${GUIDE.length}</div></div>
+    <button class="btn sm" style="background:transparent;border:1px solid #4E7A76;color:#fff" data-act="guide-close">ข้าม</button></header>
+  <div class="main guide" style="gap:14px;padding-top:24px">
+    <div class="guide-art" style="background:${g.bg};color:${g.c}">${I[g.ic]}</div>
+    <div style="text-align:center"><div style="font-size:24px;font-weight:700">${g.t}</div>${g.d?`<div style="font-size:15px;color:var(--muted);margin-top:4px">${g.d}</div>`:""}</div>
+    <div class="card"><ul>${g.li.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+    <div class="guide-dots">${GUIDE.map((_,j)=>`<span class="${j===i?"on":""}"></span>`).join("")}</div>
+  </div>
+  <div class="foot" style="flex-direction:row">
+    <button class="btn ghost" style="flex:1" data-act="guide-prev" ${i===0?"disabled":""}>ย้อนกลับ</button>
+    <button class="btn primary" style="flex:2" data-act="${last?"guide-close":"guide-next"}">${last?"เริ่มใช้งาน":"ถัดไป"}</button>
+  </div>`;
+}
+function openGuide(){ S.guideReturn = S.view; S.guideStep = 0; S.view = "guide"; render(); window.scrollTo(0,0); }
+function closeGuide(){ lsSet("mhe_guide_seen", "1"); S.view = S.guideReturn && S.guideReturn !== "guide" ? S.guideReturn : (S.user ? "leg" : "login"); render(); window.scrollTo(0,0); }
 function vChangePw(forced){
   return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">ตั้งรหัสผ่านใหม่</div><div class="ver">${VERSION}</div></div></header>
   <form class="main" style="padding:24px;gap:14px" data-form="changepw" novalidate>
@@ -543,22 +639,20 @@ function rowVisible(r, f){ if(!f) return true; f = f.trim(); return r.store_code
 
 function vEntry(){
   const E = S.entry;
-  const sub = `${legPill(E.leg).replace('class="pill','style="padding:1px 8px;font-size:11px" class="pill')} ${E.trip_no?`Trip ${esc(E.trip_no)}`:""}${E.truck_id?` · ${esc(E.truck_id)}`:""}`;
-  const door = `<button data-act="door" style="height:50px;min-width:62px;padding:0 10px;border-radius:12px;border:1.5px solid ${E.door?"var(--amber)":"#F1C28F"};background:${E.door?"transparent":"rgba(217,130,43,.18)"};color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1">
-      <span style="font-size:10px;color:#F1C28F">DOOR</span><span style="font-size:20px;font-weight:700;font-family:var(--mono)">${E.door ?? "?"}</span></button>`;
+  const card = tripCard(E);
   const banners = [];
   if(E.record) banners.push(`<div class="banner warn">${I.warn}<div>บันทึกแล้วโดย <b>${esc(E.record.updated_by||"-")}</b> เมื่อ ${fmtDT(E.record.updated_at)} (${E.record.complete?"ครบ":"ยังไม่ครบ"}) — การบันทึกครั้งนี้จะเป็นการ<b>แก้ไข</b> และเก็บประวัติไว้</div></div>`);
   if(!E.in_plan && !E.has_baseline && !E.record) banners.push(`<div class="banner grey">${I.info}<div>ไม่พบ Trip นี้ในแผนโหลด — กด <b>เพิ่มสาขา</b> ด้านล่างเพื่อกรอก</div></div>`);
   const visible = E.rows.map((r,i)=>[r,i]).filter(([r]) => rowVisible(r, E.filter));
-  return `${hdrBack(`<span class="mono" style="font-size:20px">${esc(E.doc_no)}</span>`, sub, "back", door)}
-  <div class="colhdr" style="top:76px">${QK.map(k=>`<div>${QL[k]}</div>`).join("")}</div>
-  <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center">
+  return `${hdrBack("กรอกจำนวน", "", "back", `<div style="padding-right:6px">${legPill(E.leg)}</div>`)}
+  <div style="padding:12px 16px 0">${card}</div>
+  <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center;position:sticky;top:70px;z-index:15;background:var(--bg);padding-bottom:6px">
     <div class="search" style="flex:1;border:1.5px solid var(--brand);background:#fff;height:46px">${I.filter}
       <input id="fStore" value="${esc(E.filter)}" placeholder="กรองเลขสาขา เช่น 2013" inputmode="numeric" data-in="filter" autocomplete="off" aria-label="กรองเลขสาขา">
       ${E.filter?`<button class="iconbtn" style="width:32px;height:32px" data-act="filter-clear" aria-label="ล้างตัวกรอง">${I.x}</button>`:""}</div>
     <div class="hint" style="text-align:right;line-height:1.3">แสดง<br><b id="visCnt" style="color:var(--ink)">${visible.length} / ${E.rows.length}</b></div>
   </div>
-  ${E.has_baseline?`<div class="row hint" style="padding:8px 16px 0"><span style="display:inline-block;width:22px;height:12px;border-radius:3px;background:var(--soft);border:1px solid var(--line)"></span>ตัวเลขเล็กใต้ช่อง = ขาออก (ข้อมูลตั้งต้น)</div>`:""}
+  ${E.has_baseline?`<div class="row hint" style="padding:8px 16px 0"><span style="display:inline-block;width:22px;height:12px;border-radius:3px;background:var(--soft);border:1px solid var(--line)"></span>ตัวเลขเล็กใต้ช่อง = ขาออก (ข้อมูลตั้งต้น) · <span style="display:inline-block;width:14px;height:12px;border-radius:3px;background:var(--warn-bg);border:1px solid var(--warn-line)"></span> ไม่เท่าขาออก</div>`:""}
   <div class="main" style="padding-top:10px;gap:8px">
     ${banners.join("")}
     <div id="rows" style="display:flex;flex-direction:column;gap:8px">${visible.map(([r,i]) => rowHtml(r,i)).join("") || (E.rows.length?`<div class="empty">ไม่พบสาขาที่ตรงกับ "${esc(E.filter)}"</div>`:"")}</div>
@@ -568,6 +662,14 @@ function vEntry(){
     <div class="totals"><div style="font-size:12px;font-weight:700;text-align:left">รวม</div>${QK.map(k=>`<div><div class="k">${QL[k]}</div><div class="v" id="tot_${k}">0</div></div>`).join("")}</div>
     <button class="btn action" data-act="to-confirm">${I.check} บันทึก${E.leg==="ret"?"ขากลับ":"ขาออก"}</button>
     <div class="hint" style="text-align:center;margin-top:-2px" id="entHint"></div>
+  </div>`;
+}
+function tripCard(E){
+  const f = (k, v) => `<div><div class="k">${k}</div><div class="v">${esc(v || "-")}</div></div>`;
+  return `<div class="tripcard">
+    <div class="kv">${f("Trip", E.trip_no)}${f("Load", E.load_no || E.doc_no)}${f("ทะเบียนรถ", E.truck_id)}${f("ประเภทรถ", E.truck_type)}${f("Transporter", E.transporter)}</div>
+    <button class="doorbtn ${E.door?"":"empty"}" data-act="door" aria-label="ระบุ Door No."><span class="k">DOOR</span><span class="v">${E.door ?? "?"}</span>
+      <span style="font-size:10px;color:var(--muted)">${E.door?"แตะเพื่อแก้":"แตะเพื่อใส่"}</span></button>
   </div>`;
 }
 function rowHtml(r, i){
@@ -588,8 +690,8 @@ function rowHtml(r, i){
   const cells = QK.map(k => {
     const v = r.vals[k], b = r.baseline ? r.baseline[k] : null;
     const diff = b != null && v !== "" && Number(v) !== b;
-    return `<div class="cellw"><input class="cell ${diff?"diff":v!==""?"filled":""}" value="${esc(v)}" placeholder="–" inputmode="numeric" pattern="[0-9]*" enterkeyhint="next"
-       maxlength="5" data-in="cell" data-i="${i}" data-k="${k}" aria-label="${esc(r.store_code)} ${QL[k]}" autocomplete="off">
+    return `<div class="cellw"><label class="cellbox ${diff?"diff":v!==""?"filled":""}"><span class="cl">${QL[k]}</span><input class="cell" value="${esc(v)}" placeholder="–" inputmode="numeric" pattern="[0-9]*" enterkeyhint="next"
+       maxlength="5" data-in="cell" data-i="${i}" data-k="${k}" aria-label="${esc(r.store_code)} ${QL[k]}" autocomplete="off"></label>
        <div class="base">${b!=null && (b>0 || diff) ? `ออก ${b}` : "&nbsp;"}</div></div>`;
   }).join("");
   return `<div class="srow ${cls}" id="row${i}">${head}<div class="cells">${cells}</div>
@@ -621,8 +723,8 @@ async function editDoor(){
   const n = parseInt(String(v).trim(), 10);
   if(!(n >= 1 && n <= 999)){ toast("Door No. ต้องเป็นตัวเลข 1–999", true); return; }
   E.door = n; markDirty();
-  const tmp = document.createElement("div"); tmp.innerHTML = vEntry();
-  $("[data-act=door]").replaceWith($("[data-act=door]", tmp));
+  const tmp = document.createElement("div"); tmp.innerHTML = tripCard(E);
+  $(".tripcard").replaceWith(tmp.firstElementChild);
 }
 async function editComment(i){
   const r = S.entry.rows[i];
@@ -726,7 +828,7 @@ function confirmSheet(){
       <div class="row between"><div id="cfT" style="font-size:20px;font-weight:700">ตรวจสรุปก่อนบันทึก</div>${legPill(E.leg)}</div>
       <div class="grid2" style="gap:8px 12px;font-size:13px">
         <div><div class="hint">Document No.</div><div class="mono" style="font-weight:700;font-size:15px">${esc(E.doc_no)}</div></div>
-        <div><div class="hint">Trip / รถ</div><div style="font-weight:600">${esc(E.trip_no||"-")} · ${esc(E.truck_id||"-")}</div></div>
+        <div><div class="hint">Trip / รถ</div><div style="font-weight:600">${esc(E.trip_no||"-")} · ${esc(E.truck_id||"-")}${E.truck_type?` · ${esc(E.truck_type)}`:""}</div></div>
         <div><div class="hint">Door</div><div class="mono" style="font-weight:700;font-size:15px">${E.door}</div></div>
         <div><div class="hint">สถานะหลังบันทึก</div><div>${statusPill(complete)}</div></div>
       </div></div>
@@ -773,7 +875,7 @@ function vReview(){
   const list = R.items === null ? `<div class="spin"></div>` : !R.items.length ? `<div class="empty">ไม่มีรายการในวันที่เลือก</div>` :
     R.items.map(r => `<button class="item" data-act="open-rec" data-id="${r.id}">
       <div class="row between"><div class="mono" style="font-size:16px;font-weight:700">${esc(r.doc_no)}</div>${statusPill(r.complete)}</div>
-      <div class="hint">${r.leg==="ret"?"ขากลับ":"ขาออก"} · ${r.trip_no?`Trip ${esc(r.trip_no)} · `:""}${r.truck_id?`${esc(r.truck_id)} · `:""}Door ${r.door_no ?? "-"} · ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at).slice(6)}${r.created_at!==r.updated_at?" (แก้ไข)":""}</div>
+      <div class="hint">${r.leg==="ret"?"ขากลับ":"ขาออก"} · ${r.trip_no?`Trip ${esc(r.trip_no)} · `:""}${r.truck_id?`${esc(r.truck_id)}${r.truck_type?` (${esc(r.truck_type)})`:""} · `:""}Door ${r.door_no ?? "-"} · ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at).slice(6)}${r.created_at!==r.updated_at?" (แก้ไข)":""}</div>
       <div class="row mono" style="gap:14px;font-size:13px;color:var(--ink2)"><span>P ${r.pallet}</span><span>TB ${r.totebox}</span><span>RC ${r.rollcage}</span><span>B ${r.box}</span>
       ${!r.complete?`<span style="margin-left:auto;font-family:'IBM Plex Sans Thai';color:var(--warn-ink)">${r.entered_stores}/${r.expected_stores} สาขา</span>`:""}</div></button>`).join("");
   const c = R.counts || {all:"",complete:"",incomplete:""};
@@ -790,7 +892,7 @@ function vReview(){
     <div class="seg">${[["all","ทุกขา"],["ret","ขากลับ"],["out","ขาออก"]].map(([v,l])=>`<button class="${R.leg===v?"on":""}" data-act="rev-leg" data-v="${v}">${l}</button>`).join("")}</div>
     <div class="seg">${[["all",`ทั้งหมด ${c.all}`],["incomplete",`ยังไม่ครบ ${c.incomplete}`],["complete",`ครบ ${c.complete}`]].map(([v,l])=>`<button class="${R.status===v?"on":""}" data-act="rev-status" data-v="${v}">${l}</button>`).join("")}</div>
   </div>
-  <div class="main"><div class="list">${list}</div></div>${nav("review")}`;
+  <div class="main"><div class="list grid">${list}</div></div>${nav("review")}`;
 }
 function revParams(){ const R = S.review; return `date_from=${R.date}&date_to=${R.date}&leg=${R.leg}&status=${R.status}&q=${encodeURIComponent(R.q)}`; }
 async function loadReview(){
@@ -799,6 +901,7 @@ async function loadReview(){
   catch(e){ R.items = []; toast(e.message, true); }
   if(S.view === "review") { const f = document.activeElement && document.activeElement.id === "revQ"; render(); if(f){ const i=$("#revQ"); i.focus(); i.setSelectionRange(i.value.length,i.value.length);} }
 }
+const rcSearch = debounce(() => { if(S.view !== "recon") return; const pos = ($("#rcQ")||{}).selectionStart; S.recon.limit = 100; render(); const i = $("#rcQ"); if(i){ i.focus(); try{ i.setSelectionRange(pos,pos); }catch(e){} } }, 250);
 const revSearch = debounce(() => { S.review.items = null; loadReview(); }, 300);
 
 // ================================================================== detail
@@ -822,7 +925,7 @@ function vDetail(){
     ${!r.complete?`<div class="banner warn">${I.warn}<div>กรอกแล้ว ${r.entered_stores} จาก ${r.expected_stores} สาขา</div></div>`:""}
     <div class="tbl"><div class="tr h"><div style="text-align:left">สาขา</div><div>P</div><div>TB</div><div>RC</div><div>B</div></div>${rows}
       <div class="tr total"><div class="st" style="font-weight:700">รวม</div>${QK.map(k=>`<div class="q"><div class="v">${t[k]}</div></div>`).join("")}</div></div>
-    <div class="hint">รถ ${esc(r.truck_id||"-")} · สร้างโดย ${esc(r.created_by||"-")} ${fmtDT(r.created_at)} · แก้ไขล่าสุด ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at)}</div>
+    <div class="hint">รถ ${esc(r.truck_id||"-")}${r.truck_type?` · ${esc(r.truck_type)}`:""}${r.transporter?` · ${esc(r.transporter)}`:""} · สร้างโดย ${esc(r.created_by||"-")} ${fmtDT(r.created_at)} · แก้ไขล่าสุด ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at)}</div>
     <button class="btn outline" data-act="edit-rec">${I.edit} แก้ไข</button>
     <div style="font-size:16px;font-weight:700;padding-top:6px">ประวัติการแก้ไข</div>
     <div>${hist || `<div class="hint">-</div>`}</div>
@@ -835,62 +938,119 @@ async function openDetail(id){
 }
 
 // ================================================================== reconcile (admin)
+const RC_STATUS = {mismatch:["จำนวนไม่ตรง","warn"], only_lp:["ไม่มีใน MHE","blue"], lp_missing:["LP ยังไม่ได้คีย์","bad"], match:["ตรงกัน","ok"]};
+function rcStatusPill(d){
+  if(d.status === "mismatch" && d.lp == null) return `<span class="pill bad">LP ไม่ได้กรอกสาขานี้</span>`;
+  const [t, c] = RC_STATUS[d.status] || [d.status, "grey"]; return `<span class="pill ${c}">${t}</span>`;
+}
+function rcCat(d){ return d.category ? `<span class="catchip">${esc(d.category)}</span>` : `<span class="catchip none">ยังไม่ระบุ</span>`; }
+function rcFiltered(){
+  const R = S.recon, D = R.data; if(!D) return [];
+  const q = (R.q||"").trim().toLowerCase();
+  let rows = D.diffs.filter(d => {
+    if(R.fstat === "open" && d.resolved) return false;
+    if(R.fstat === "resolved" && !d.resolved) return false;
+    if(R.fcat === "none" && d.category_id) return false;
+    if(R.fcat !== "all" && R.fcat !== "none" && String(d.category_id) !== String(R.fcat)) return false;
+    if(q && !(`${d.trip_no} ${d.doc_no} ${d.store_code} ${d.store_name} ${d.bu} ${d.keyed_by} ${d.note}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const [k, dir] = R.sort || ["absdiff", -1];
+  const val = d => k === "absdiff" ? Math.abs(d.diff) : (d[k] ?? "");
+  rows.sort((x, y) => { const a = val(x), b = val(y); return (a > b ? 1 : a < b ? -1 : 0) * dir; });
+  return rows;
+}
+function rcCounts(){
+  const D = S.recon.data, by = {}, none = {n:0};
+  let open = 0, resolved = 0;
+  D.diffs.forEach(d => { d.resolved ? resolved++ : open++; if(d.category_id) by[d.category_id] = (by[d.category_id]||0) + 1; else none.n++; });
+  return {by, none: none.n, open, resolved, all: D.diffs.length};
+}
 function vRecon(){
-  const R = S.recon || (S.recon = {from: addDays(bkkDate(),-6), to: bkkDate(), leg:"ret", bu:"", mtype:"all", data:null, uploads:null, showAll:false, busy:false});
+  const R = S.recon || (S.recon = {from: addDays(bkkDate(),-6), to: bkkDate(), leg:"ret", bu:"", mtype:"all", mode:"both",
+                                   data:null, uploads:null, busy:false, fstat:"open", fcat:"all", q:"", limit:100, sort:["absdiff",-1]});
   if(R.uploads === null){ loadUploads(); }
   if(R.data === null && !R.busy){ loadRecon(); }
   const U = R.uploads, up = U && U.items[0];
   const D = R.data;
+  const colLbl = R.leg === "ret" ? "Out" : "In";
   let body = `<div class="spin"></div>`;
   if(D){
-    const s = D.summary;
-    const people = D.people.map(p => `<div class="row" style="padding:10px 14px;border-top:1px solid #ECE8E1">
-      <div style="width:84px;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</div>
+    const s = D.summary, cnt = rcCounts(), cats = D.categories || [];
+    const both = D.mode === "both";
+    const big = both ? s.accuracy : s.completeness;
+    const kpi = `<div class="kpi">
+      <div class="row between" style="align-items:flex-end;gap:12px"><div><div style="font-size:13px;color:#A9C2BF">${both?"ความถูกต้องการคีย์":"ความครบถ้วน (ตรงกัน ÷ ทุกรายการ)"}</div>
+        <div class="mono" style="font-size:40px;font-weight:700;line-height:1.1">${big==null?"–":big+"%"}</div></div>
+        <div style="font-size:12px;color:#A9C2BF;text-align:right">${both?`เทียบเฉพาะ Trip ที่คีย์ทั้ง 2 ฝั่ง<br>${s.matched_trips} / ${s.mhe_trips} Trip ของ MHE`:`รวม ${s.total} รายการ<br>Trip ที่คีย์ทั้ง 2 ฝั่ง ${s.matched_trips} / ${s.mhe_trips}`}</div></div>
+      <div style="display:grid;grid-template-columns:repeat(${both?3:4},minmax(0,1fr));gap:8px">
+        <div class="box"><div class="k">ตรงกัน</div><div class="v">${s.match}</div></div>
+        <div class="box w"><div class="k">จำนวนไม่ตรง</div><div class="v">${s.mismatch}</div></div>
+        ${both ? `<div class="box"><div class="k">ปิดเรื่องแล้ว</div><div class="v">${s.resolved}/${s.issues}</div></div>`
+               : `<div class="box"><div class="k">LP ยังไม่ได้คีย์</div><div class="v">${s.lp_missing}</div></div>
+                  <div class="box"><div class="k">ไม่มีใน MHE</div><div class="v">${s.only_lp}</div></div>`}
+      </div></div>`;
+    const people = D.people.length ? `<div class="tbl"><div style="padding:12px 14px;font-size:15px;font-weight:700">แยกตามผู้คีย์ (LP)</div>${D.people.map(p => `<div class="row" style="padding:10px 14px;border-top:1px solid #ECE8E1">
+      <div style="width:96px;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</div>
       <div class="barw"><div style="width:${p.pct||0}%;background:${(p.pct||0)>=95?"var(--brand)":"var(--action)"}"></div></div>
-      <div class="mono" style="width:92px;text-align:right;font-size:13px;color:var(--ink2)">${p.pct==null?"-":p.pct+"%"} <span class="hint">(${p.match}/${p.total})</span></div></div>`).join("");
-    const tagOf = (st, d) => st==="mismatch" ? (d.lp==null ? `<span class="pill bad">LP ไม่ได้กรอกสาขานี้</span>` : `<span class="pill warn">จำนวนไม่ตรง</span>`) : `<span class="pill blue">ไม่มีใน MHE</span>`;
-    const diffs = (R.showAll ? D.diffs : D.diffs.slice(0,40)).map(d => `<div class="item">
-      <div class="row between"><div class="mono" style="font-size:15px;font-weight:700">${esc(d.trip_no)}</div>${tagOf(d.status, d)}</div>
+      <div class="mono" style="width:100px;text-align:right;font-size:13px;color:var(--ink2)">${p.pct==null?"-":p.pct+"%"} <span class="hint">(${p.match}/${p.total})</span></div></div>`).join("")}</div>` : "";
+    const catSummary = `<div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="row between"><div style="font-size:15px;font-weight:700">ประเภทปัญหา</div><button class="linkbtn" style="font-size:13px" data-act="rc-cats">จัดการประเภท</button></div>
+      <div class="chips">
+        <button class="chip ${R.fcat==="all"?"on":""}" data-act="rc-fcat" data-v="all">ทั้งหมด ${cnt.all}</button>
+        <button class="chip ${R.fcat==="none"?"on":""}" data-act="rc-fcat" data-v="none">ยังไม่ระบุ ${cnt.none}</button>
+        ${cats.filter(c => c.active || cnt.by[c.id]).map(c => `<button class="chip ${String(R.fcat)===String(c.id)?"on":""}" data-act="rc-fcat" data-v="${c.id}">${esc(c.name)} ${cnt.by[c.id]||0}</button>`).join("")}
+      </div></div>`;
+    const rows = rcFiltered(), shown = rows.slice(0, R.limit);
+    const th = (k, l, cls="") => { const on = R.sort[0] === k; return `<th class="${cls}" data-act="rc-sort" data-k="${k}">${l}${on?(R.sort[1]>0?" ▲":" ▼"):""}</th>`; };
+    const table = `<div class="only-pc" style="overflow:auto;max-height:70vh;border-radius:14px"><table class="xtable"><thead><tr>
+        ${th("tn_date","วันที่")}${th("trip_no","Trip")}${th("bu","BU")}${th("store_code","สาขา")}${th("mtype","ประเภท")}
+        ${th("lp","LP","n")}${th("mhe",`MHE (${colLbl})`,"n")}${th("absdiff","ต่าง","n")}${th("status","สถานะ")}${th("keyed_by","คีย์โดย")}${th("category","ประเภทปัญหา")}<th>หมายเหตุ</th><th></th></tr></thead><tbody>
+      ${shown.map(d => `<tr class="${d.resolved?"resolved":""}">
+        <td style="white-space:nowrap">${fmtD(d.tn_date)}</td><td class="mono" style="white-space:nowrap">${esc(d.trip_no)}</td><td>${esc(d.bu)}</td>
+        <td><span class="mono">${esc(d.store_code)}</span> <span class="hint">${esc(d.store_name)}</span></td><td>${d.mtype==="pallet"?"Pallet":"Totebox"}</td>
+        <td class="n">${d.lp ?? "–"}</td><td class="n">${d.mhe ?? "–"}</td><td class="n" style="color:var(--bad-ink)">${d.diff>0?"+":""}${d.diff}</td>
+        <td>${rcStatusPill(d)}</td><td>${esc(d.keyed_by||"-")}</td><td>${rcCat(d)}${d.resolved?` <span class="pill ok" style="font-size:11px;padding:1px 6px">แก้แล้ว</span>`:""}</td>
+        <td style="max-width:260px;white-space:normal">${esc(d.note)}</td>
+        <td style="white-space:nowrap"><button class="btn sm outline" style="height:34px" data-act="rc-note" data-i="${D.diffs.indexOf(d)}">${d.category_id||d.note?"แก้ไข":"ระบุปัญหา"}</button>
+          ${d.record_id?`<button class="linkbtn" style="font-size:12px;margin-left:6px" data-act="open-rec" data-id="${d.record_id}">ดู</button>`:""}</td></tr>`).join("")}
+      </tbody></table></div>`;
+    const cards = `<div class="list only-mobile">${shown.map(d => `<div class="item" style="${d.resolved?"opacity:.65":""}">
+      <div class="row between"><div class="mono" style="font-size:15px;font-weight:700">${esc(d.trip_no)}</div>${rcStatusPill(d)}</div>
       <div style="font-size:13px;color:var(--ink2)"><span class="mono">${esc(d.store_code)}</span> · ${esc(d.store_name||"-")} · <b>${d.mtype==="pallet"?"Pallet":"Totebox"}</b>${d.bu?` · ${esc(d.bu)}`:""}</div>
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;text-align:center;background:var(--bg);border-radius:10px;padding:8px">
         <div><div class="hint" style="font-size:11px">LP คีย์</div><div class="mono" style="font-size:18px;font-weight:700">${d.lp ?? "–"}</div></div>
-        <div><div class="hint" style="font-size:11px">MHE (${R.leg==="ret"?"Out":"In"})</div><div class="mono" style="font-size:18px;font-weight:700">${d.mhe ?? "–"}</div></div>
+        <div><div class="hint" style="font-size:11px">MHE (${colLbl})</div><div class="mono" style="font-size:18px;font-weight:700">${d.mhe ?? "–"}</div></div>
         <div><div class="hint" style="font-size:11px">ต่าง</div><div class="mono" style="font-size:18px;font-weight:700;color:var(--bad-ink)">${d.diff>0?"+":""}${d.diff}</div></div></div>
+      <div class="row" style="flex-wrap:wrap;gap:6px">${rcCat(d)}${d.resolved?`<span class="pill ok" style="font-size:11px;padding:1px 8px">แก้ไขแล้ว</span>`:""}${d.note?`<span class="hint" style="flex-basis:100%">${esc(d.note)}</span>`:""}</div>
       <div class="row between"><span class="hint">คีย์โดย ${esc(d.keyed_by||"-")} · ${fmtD(d.tn_date)}</span>
-        ${d.record_id?`<button class="linkbtn" style="font-size:13px" data-act="open-rec" data-id="${d.record_id}">ดูรายการ ›</button>`:""}</div></div>`).join("");
-    const om = D.only_mhe_trips;
+        <div class="row" style="gap:10px">${d.record_id?`<button class="linkbtn" style="font-size:13px" data-act="open-rec" data-id="${d.record_id}">ดูรายการ</button>`:""}
+        <button class="btn sm outline" style="height:36px" data-act="rc-note" data-i="${D.diffs.indexOf(d)}">${d.category_id||d.note?"แก้ไข":"ระบุปัญหา"}</button></div></div></div>`).join("")}</div>`;
+    const om = both ? D.only_mhe_trips : [];
     body = `
-    <div class="kpi">
-      <div class="row between" style="align-items:flex-end"><div><div style="font-size:13px;color:#A9C2BF">ความถูกต้องการคีย์</div>
-        <div class="mono" style="font-size:40px;font-weight:700;line-height:1.1">${s.accuracy==null?"–":s.accuracy+"%"}</div></div>
-        <div style="font-size:12px;color:#A9C2BF;text-align:right">เทียบเฉพาะ Trip ที่มีทั้ง 2 ฝั่ง<br>${s.matched_trips} / ${s.mhe_trips} Trip ของ MHE</div></div>
-      <div class="grid2">
-        <div class="box"><div class="k">ตรงกัน</div><div class="v">${s.match}</div></div>
-        <div class="box w"><div class="k">จำนวนไม่ตรง</div><div class="v">${s.mismatch}</div></div>
-        <div class="box"><div class="k">มีเฉพาะ LP (ไม่มีใน MHE)</div><div class="v">${s.only_lp}</div></div>
-        <div class="box"><div class="k">Trip ที่ LP ยังไม่ได้คีย์</div><div class="v">${s.only_mhe_trips}</div></div></div></div>
-    ${people?`<div class="tbl"><div style="padding:12px 14px;font-size:15px;font-weight:700">แยกตามผู้คีย์ (LP)</div>${people}</div>`:""}
-    <div class="row between"><div style="font-size:16px;font-weight:700">รายการที่ไม่ตรง (${D.diffs.length})</div><div class="hint">เรียงตามส่วนต่างมากสุด</div></div>
-    <div class="list">${diffs || `<div class="empty">ไม่มีรายการที่ไม่ตรง 🎯</div>`.replace(" 🎯","")}</div>
-    ${!R.showAll && D.diffs.length>40?`<button class="btn ghost" data-act="rc-more">แสดงทั้งหมด ${D.diffs.length} รายการ</button>`:""}
-    ${om.length?`<details class="card" style="padding:0"><summary style="padding:14px;font-weight:700;cursor:pointer">Trip ที่มีใน MHE แต่ LP ยังไม่ได้คีย์ (${s.only_mhe_trips})</summary>
+    <div class="rc-kpis">${kpi}<div style="display:flex;flex-direction:column;gap:12px">${catSummary}${people}</div></div>
+    <div class="row between" style="flex-wrap:wrap;gap:8px">
+      <div style="font-size:16px;font-weight:700">รายการที่ไม่ตรง ${rows.length !== D.diffs.length ? `${rows.length} จาก ${D.diffs.length}` : `(${D.diffs.length})`}${D.diffs_total > D.diffs.length ? ` <span class="hint">แสดง ${D.diffs.length} จาก ${D.diffs_total} — Export เพื่อดูทั้งหมด</span>`:""}</div>
+      <div class="seg" style="min-width:280px">${[["open",`ยังไม่แก้ ${cnt.open}`],["resolved",`แก้แล้ว ${cnt.resolved}`],["all","ทั้งหมด"]].map(([v,l])=>`<button class="${R.fstat===v?"on":""}" data-act="rc-fstat" data-v="${v}" style="font-size:13px">${l}</button>`).join("")}</div>
+    </div>
+    <div class="search">${I.search}<input id="rcQ" value="${esc(R.q)}" placeholder="ค้นหา Trip, สาขา, BU, ผู้คีย์, หมายเหตุ" data-in="rcq" autocomplete="off"></div>
+    ${rows.length ? table + cards : `<div class="empty">ไม่มีรายการ</div>`}
+    ${rows.length > R.limit ? `<button class="btn ghost" data-act="rc-more">แสดงเพิ่ม (อีก ${rows.length - R.limit} รายการ)</button>` : ""}
+    ${om.length?`<details class="card" style="padding:0"><summary style="padding:14px;font-weight:700;cursor:pointer">Trip ที่มีใน MHE แต่ LP ยังไม่ได้คีย์ (${s.only_mhe_trips}) — ดูรายสาขาได้ในแท็บ "ทุกรายการ"</summary>
       ${om.map(t=>`<div class="row between" style="padding:10px 14px;border-top:1px solid #ECE8E1;font-size:13px"><span class="mono" style="font-weight:600">${esc(t.trip_no)}</span>
         <span class="hint">${fmtD(t.tn_date)} · ${t.stores} สาขา · ${esc(t.bu)} · รวม ${t.qty}</span></div>`).join("")}</details>`:""}`;
   }
   const bus = (D && D.bus) || [];
-  return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">Reconcile</div><div class="s">เทียบข้อมูลที่ LP คีย์ กับไฟล์ MHE</div></div>
-    <button class="btn sm" style="background:transparent;border:1px solid #4E7A76;color:#fff" data-act="rc-export">${I.dl} Export</button></header>
-  <div class="main" style="gap:14px">
-    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+  const upload = `<div class="card" style="display:flex;flex-direction:column;gap:10px">
       <div style="font-size:13px;font-weight:700;color:var(--muted)">ไฟล์ MHE (Daily Movement)</div>
       ${up?`<div class="row" style="gap:12px"><div class="legicon" style="width:44px;height:44px;border-radius:12px;background:var(--brand-soft);color:var(--brand)">${I.file}</div>
         <div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;word-break:break-all">${esc(up.filename)}</div>
         <div class="hint">${up.row_count.toLocaleString()} แถว · ${up.trip_count.toLocaleString()} Trip · TNDate ${fmtD(up.date_min)} – ${fmtD(up.date_max)}<br>อัปโหลดโดย ${esc(up.by||"-")} ${fmtDT(up.uploaded_at)}</div></div></div>`
         : U ? `<div class="hint">ยังไม่มีไฟล์ — อัปโหลดไฟล์ AllBUDailyMovement (.xlsx)</div>` : `<div class="hint">กำลังโหลด…</div>`}
       <label class="btn outline" style="height:46px;font-size:15px">${I.up} อัปโหลดไฟล์ MHE
-        <input type="file" accept=".xlsx" data-in="mhefile" class="sr"></label>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
+        <input type="file" accept=".xlsx" data-in="mhefile" class="sr"></label></div>`;
+  const filters = `<div style="display:flex;flex-direction:column;gap:8px">
+      <div class="seg">${[["all","ทุกรายการ"],["both","เฉพาะ Trip ที่คีย์ทั้งสองฝั่ง"]].map(([v,l])=>`<button class="${R.mode===v?"on":""}" data-act="rc-mode" data-v="${v}">${l}</button>`).join("")}</div>
       <div class="grid2">
         <label class="field"><span class="hint">TNDate ตั้งแต่</span><input type="date" class="inp" style="height:44px" value="${R.from}" data-in="rc-from"></label>
         <label class="field"><span class="hint">ถึง</span><input type="date" class="inp" style="height:44px" value="${R.to}" data-in="rc-to"></label>
@@ -900,19 +1060,82 @@ function vRecon(){
         <div class="seg">${[["all","ทั้งหมด"],["pallet","Pallet"],["totebox","Totebox"]].map(([v,l])=>`<button class="${R.mtype===v?"on":""}" data-act="rc-type" data-v="${v}" style="font-size:13px">${l}</button>`).join("")}</div>
       </div>
       <div class="seg">${[["ret","ขากลับ ↔ MHE Out"],["out","ขาออก ↔ MHE In"]].map(([v,l])=>`<button class="${R.leg===v?"on":""}" data-act="rc-leg" data-v="${v}">${l}</button>`).join("")}</div>
-    </div>
+    </div>`;
+  return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">Reconcile</div><div class="s">เทียบข้อมูลที่ LP คีย์ กับไฟล์ MHE</div></div>
+    <button class="btn sm" style="background:transparent;border:1px solid #4E7A76;color:#fff" data-act="rc-export">${I.dl} Export</button></header>
+  <div class="main" style="gap:14px">
+    <div class="rc-top">${upload}${filters}</div>
     ${body}
   </div>${nav("recon")}`;
 }
+function rcNoteSheet(i){
+  const R = S.recon, d = R.data.diffs[i]; if(!d) return;
+  const cats = (R.data.categories || []).filter(c => c.active || c.id === d.category_id);
+  let sel = d.category_id;
+  const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="ระบุปัญหา">
+    <div class="sh"><div class="grab"></div><div class="row between"><div style="font-size:18px;font-weight:700">ระบุปัญหา</div>${rcStatusPill(d)}</div>
+      <div style="font-size:14px"><span class="mono" style="font-weight:700">${esc(d.trip_no)}</span> · <span class="mono">${esc(d.store_code)}</span> ${esc(d.store_name)} · <b>${d.mtype==="pallet"?"Pallet":"Totebox"}</b></div>
+      <div class="hint">LP ${d.lp ?? "–"} · MHE ${d.mhe ?? "–"} · ต่าง ${d.diff>0?"+":""}${d.diff}${d.note_by?` · บันทึกล่าสุดโดย ${esc(d.note_by)}`:""}</div></div>
+    <div class="sb">
+      <div class="lbl" style="margin:0">ประเภทปัญหา</div>
+      <div class="radio-list" id="nCats">
+        <button data-c="" class="${sel?"":"on"}">ยังไม่ระบุ</button>
+        ${cats.map(c => `<button data-c="${c.id}" class="${c.id===sel?"on":""}">${esc(c.name)}</button>`).join("")}
+      </div>
+      <label class="lbl" for="nNote" style="margin:4px 0 0">หมายเหตุ</label>
+      <textarea id="nNote" class="inp" rows="3" maxlength="1000" style="height:auto;padding:12px 14px" placeholder="รายละเอียดเพิ่มเติม">${esc(d.note)}</textarea>
+      <label class="row" style="font-size:15px;min-height:44px"><input id="nRes" type="checkbox" ${d.resolved?"checked":""} style="width:22px;height:22px;accent-color:var(--brand)"> แก้ไขแล้ว / ปิดเรื่อง</label>
+    </div>
+    <div class="sf"><button class="btn ghost" data-close>ยกเลิก</button><button class="btn primary" id="nSave">บันทึก</button></div></div>`);
+  $$("#nCats button", ov).forEach(b => b.onclick = () => { sel = b.dataset.c ? +b.dataset.c : null; $$("#nCats button", ov).forEach(x => x.classList.toggle("on", x === b)); });
+  $("[data-close]", ov).onclick = closeLayer;
+  $("#nSave", ov).onclick = async (e) => {
+    e.currentTarget.disabled = true;
+    const note = $("#nNote", ov).value.trim(), resolved = $("#nRes", ov).checked;
+    try{
+      await api("/api/admin/reconcile/note", {method:"PUT", body:{leg:R.leg, trip_key:d.trip_key, store_code:d.store_code, mtype:d.mtype, category_id:sel, note, resolved}});
+      d.category_id = sel; d.category = sel ? ((R.data.categories.find(c => c.id === sel)||{}).name || "") : ""; d.note = note; d.resolved = resolved; d.note_by = S.user.display_name;
+      R.data.summary.resolved = R.data.diffs.filter(x => x.resolved).length;
+      closeLayer(); toast("บันทึกแล้ว"); render();
+    }catch(err){ e.currentTarget.disabled = false; toast(err.message, true); }
+  };
+}
+async function rcCatsSheet(){
+  let items = [];
+  try{ items = (await api("/api/admin/recon-categories")).items; }catch(e){ toast(e.message, true); return; }
+  const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="ประเภทปัญหา"><div class="sh"><div class="grab"></div>
+      <div class="row between"><div style="font-size:18px;font-weight:700">ประเภทปัญหา</div><button class="btn sm primary" data-x="add">${I.plus} เพิ่ม</button></div></div>
+    <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
+      ${items.map(c => `<div class="item" style="flex-direction:row;align-items:center;gap:10px;${c.active?"":"opacity:.55"}">
+        <div style="flex:1;min-width:0"><div style="font-weight:700">${esc(c.name)}</div><div class="hint">ใช้อยู่ ${c.used} รายการ${c.active?"":" · ปิดใช้งาน"}</div></div>
+        <button class="btn sm ghost" data-x="ren" data-id="${c.id}">แก้ชื่อ</button>
+        <button class="btn sm ghost" data-x="${c.active?"off":"on"}" data-id="${c.id}">${c.active?"ปิด":"เปิด"}</button>
+        ${c.used?"":`<button class="btn sm danger" data-x="del" data-id="${c.id}">ลบ</button>`}</div>`).join("")}
+    </div></div>`);
+  $$("[data-x]", ov).forEach(b => b.onclick = async () => {
+    const x = b.dataset.x, id = +b.dataset.id, c = items.find(i => i.id === id);
+    closeLayer();
+    try{
+      if(x === "add"){ const n = await ask({title:"เพิ่มประเภทปัญหา", input:{placeholder:"เช่น รถมาช้า", max:60}, ok:"เพิ่ม"}); if(!n || !n.trim()) return rcCatsSheet();
+        await api("/api/admin/recon-categories", {method:"POST", body:{name:n}}); }
+      if(x === "ren"){ const n = await ask({title:"แก้ชื่อประเภท", input:{value:c.name, max:60}, ok:"บันทึก"}); if(!n || !n.trim()) return rcCatsSheet();
+        await api(`/api/admin/recon-categories/${id}`, {method:"PATCH", body:{name:n}}); }
+      if(x === "on" || x === "off") await api(`/api/admin/recon-categories/${id}`, {method:"PATCH", body:{active: x === "on"}});
+      if(x === "del"){ const ok = await ask({title:`ลบ "${c.name}"?`, ok:"ลบ", danger:true}); if(!ok) return rcCatsSheet();
+        await api(`/api/admin/recon-categories/${id}`, {method:"DELETE"}); }
+      toast("บันทึกแล้ว"); S.recon.data = null; render(); rcCatsSheet();
+    }catch(e){ toast(e.message, true); rcCatsSheet(); }
+  });
+}
 async function loadUploads(){ try{ S.recon.uploads = await api("/api/admin/mhe/uploads"); }catch(e){ S.recon.uploads = {items:[]}; toast(e.message,true); } if(S.view==="recon") render(); }
-function rcParams(){ const R = S.recon; return `date_from=${R.from}&date_to=${R.to}&leg=${R.leg}&bu=${encodeURIComponent(R.bu)}&mtype=${R.mtype}`; }
+function rcParams(){ const R = S.recon; return `date_from=${R.from}&date_to=${R.to}&leg=${R.leg}&bu=${encodeURIComponent(R.bu)}&mtype=${R.mtype}&mode=${R.mode}`; }
 async function loadRecon(){
   const R = S.recon, p = rcParams(); R.busy = true;
   try{ const d = await api("/api/admin/reconcile?" + p); if(rcParams() === p) R.data = d; }
-  catch(e){ toast(e.message, true); R.data = {summary:{},people:[],diffs:[],only_mhe_trips:[],bus:[]}; }
+  catch(e){ toast(e.message, true); R.data = {mode:R.mode, summary:{}, people:[], diffs:[], only_mhe_trips:[], bus:[], categories:[], by_category:[]}; }
   R.busy = false; if(S.view === "recon") render();
 }
-function rcReload(){ S.recon.data = null; S.recon.showAll = false; render(); }
+function rcReload(){ S.recon.data = null; S.recon.limit = 100; render(); }
 async function uploadMhe(file){
   if(!file) return;
   const fd = new FormData(); fd.append("file", file);
@@ -962,7 +1185,7 @@ function vImport(){
       <label class="btn outline" style="height:46px;font-size:15px">${I.up} อัปโหลดไฟล์แผนโหลดเอง<input type="file" accept=".xlsx" data-in="planfile" class="sr"></label>
     </div>
     <div style="font-size:16px;font-weight:700">ประวัติการนำเข้า</div>
-    <div class="list">${files || `<div class="empty">ยังไม่มีไฟล์</div>`}</div>
+    <div class="list grid">${files || `<div class="empty">ยังไม่มีไฟล์</div>`}</div>
   </div>${nav("import")}`;
 }
 async function loadImport(){ try{ S.imp = await api("/api/admin/import"); }catch(e){ toast(e.message,true); S.imp = null; return; } if(S.view==="import") render(); }
@@ -977,7 +1200,7 @@ function vUsers(){
   const U = S.users;
   if(!U) return `${hdrMain("จัดการผู้ใช้")}<div style="padding:14px 16px 0">${usersTabs("users")}</div><div class="spin"></div>${nav("users")}`;
   const q = (U.q||"").toLowerCase();
-  const items = U.items.filter(u => !q || u.display_name.toLowerCase().includes(q) || u.email.includes(q) || (u.cost_center||"").toLowerCase().includes(q));
+  const items = U.items.filter(u => !q || u.display_name.toLowerCase().includes(q) || u.email.includes(q) || (u.cost_center||"").toLowerCase().includes(q) || (u.employee_id||"").toLowerCase().includes(q));
   const admins = U.items.filter(u=>u.role==="admin").length;
   const list = items.map(u => `<div class="item" style="flex-direction:row;align-items:center;gap:12px;${u.active?"":"opacity:.55"}">
       <div class="avatar" style="${u.role==="admin"?"":"background:var(--ok-bg);color:var(--ok-ink)"}">${esc(initials(u.display_name))}</div>
@@ -985,14 +1208,14 @@ function vUsers(){
         <span class="pill ${u.role==="admin"?"warn":"ok"}" style="font-size:11px;padding:1px 8px">${u.role==="admin"?"Admin":"User"}</span>
         ${u.active?"":`<span class="pill bad" style="font-size:11px;padding:1px 8px">ปิดใช้งาน</span>`}
         ${u.cost_center?`<span class="hint">${esc(ccLabel(u.cost_center,u.cost_center_name))}</span>`:`<span class="hint" style="color:var(--warn-ink)">ยังไม่มี CC</span>`}</div>
-        <div class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(u.email)}</div></div>
+        <div class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.employee_id?`<span class="mono">#${esc(u.employee_id)}</span> · `:`<span style="color:var(--warn-ink)">ยังไม่มีรหัสพนักงาน</span> · `}${esc(u.email)}</div></div>
       <button class="sbtn" style="width:44px;height:44px" data-act="user-menu" data-id="${u.id}" aria-label="ตัวเลือกสำหรับ ${esc(u.display_name)}">${I.more}</button></div>`).join("");
   return `${hdrMain("จัดการผู้ใช้")}
   <div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid var(--line)">
     ${usersTabs("users")}
-    <div class="search">${I.search}<input id="usQ" value="${esc(U.q||"")}" placeholder="ค้นหาชื่อ อีเมล หรือ Cost Center" data-in="usq" autocomplete="off"></div>
+    <div class="search">${I.search}<input id="usQ" value="${esc(U.q||"")}" placeholder="ค้นหาชื่อ อีเมล รหัสพนักงาน หรือ Cost Center" data-in="usq" autocomplete="off"></div>
     <div class="hint">ทั้งหมด ${U.items.length} คน · Admin ${admins} · User ${U.items.length-admins}</div></div>
-  <div class="main"><div class="list">${list || `<div class="empty">ไม่พบผู้ใช้</div>`}</div></div>${nav("users")}`;
+  <div class="main"><div class="list grid">${list || `<div class="empty">ไม่พบผู้ใช้</div>`}</div></div>${nav("users")}`;
 }
 function vCostCenters(){
   if(S.ccs === null || S.ccs === undefined){ S.ccs = false; loadCcs(); }
@@ -1046,9 +1269,10 @@ function userMenu(id){
   const u = S.users.items.find(x => x.id === id); if(!u) return;
   const self = u.id === S.user.id;
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="ตัวเลือกผู้ใช้"><div class="sh"><div class="grab"></div>
-      <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${esc(u.email)}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div>
+      <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${esc(u.email)}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
       ${u.role==="admin" ? `<button class="btn ghost" data-u="demote">ลดสิทธิ์เป็น User</button>` : `<button class="btn primary" data-u="promote">ตั้งเป็น Admin</button>`}
+      <button class="btn ghost" data-u="emp">แก้ไขรหัสพนักงาน</button>
       <button class="btn ghost" data-u="cc">แก้ไข Cost Center</button>
       <button class="btn ghost" data-u="reset">รีเซ็ตรหัสผ่าน</button>
       ${self?"":(u.active ? `<button class="btn danger" data-u="off">ปิดการใช้งานบัญชี</button>` : `<button class="btn outline" data-u="on">เปิดการใช้งานบัญชี</button>`)}
@@ -1063,6 +1287,9 @@ function userMenu(id){
       } else if(a === "off" || a === "on"){
         const ok = await ask({title: a==="off"?`ปิดการใช้งาน ${u.display_name}?`:`เปิดการใช้งาน ${u.display_name}?`, body: a==="off"?"ผู้ใช้จะถูกออกจากระบบทันที และเข้าสู่ระบบไม่ได้":"", ok:"ยืนยัน", danger:a==="off"}); if(!ok) return;
         await api(`/api/admin/users/${id}`, {method:"PATCH", body:{active: a==="on"}});
+      } else if(a === "emp"){
+        const v = await ask({title:`รหัสพนักงาน · ${u.display_name}`, input:{value:u.employee_id||"", max:20, placeholder:"เช่น 12345"}, ok:"บันทึก"}); if(v === null) return;
+        await api(`/api/admin/users/${id}`, {method:"PATCH", body:{employee_id: v}});
       } else if(a === "cc"){
         let list = [];
         try{ list = (await api("/api/meta")).cost_centers; }catch(e){}
@@ -1086,12 +1313,14 @@ function accountSheet(){
   const u = S.user;
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="บัญชีผู้ใช้"><div class="sh"><div class="grab"></div>
     <div class="row" style="gap:12px"><div class="avatar" style="width:44px;height:44px;border-radius:22px">${esc(initials(u.display_name))}</div>
-    <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${esc(u.email)} · ${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
+    <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${esc(u.email)} · ${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
+      <button class="btn ghost" data-a="guide">วิธีใช้งาน</button>
       <button class="btn ghost" data-a="pw">เปลี่ยนรหัสผ่าน</button>
       <button class="btn danger" data-a="out">ออกจากระบบ</button>
       <div class="hint mono" style="text-align:center">${VERSION}</div></div></div>`);
   $("[data-a=out]", ov).onclick = () => { closeLayer(); logout(); };
+  $("[data-a=guide]", ov).onclick = () => { closeLayer(); openGuide(); };
   $("[data-a=pw]", ov).onclick = async () => {
     closeLayer();
     const cur = await ask({title:"รหัสผ่านปัจจุบัน", input:{type:"password", max:128}, ok:"ถัดไป"}); if(cur === null) return;
@@ -1122,16 +1351,17 @@ document.addEventListener("submit", async e => {
   const btn = f.querySelector("button[type=submit]"); const txt = btn.innerHTML; btn.disabled = true; btn.innerHTML = "กำลังดำเนินการ…";
   try{
     if(f.dataset.form === "login"){
-      if(!fd.email || !fd.password) throw new Error("กรุณากรอกอีเมลและรหัสผ่าน");
+      if(!fd.email || !fd.password) throw new Error("กรุณากรอกอีเมล/รหัสพนักงาน และรหัสผ่าน");
       setSession(await api("/api/auth/login", {method:"POST", body:{email:fd.email, password:fd.password, remember:!!fd.remember}, noLogout:true}));
       afterLogin(); return;
     }
     if(f.dataset.form === "register"){
       if(!fd.display_name.trim()) throw new Error("กรุณากรอกชื่อที่แสดง");
+      if(!/^[A-Za-z0-9-]{3,20}$/.test((fd.employee_id||"").trim())) throw new Error("รหัสพนักงานใช้ตัวอักษร/ตัวเลข 3–20 ตัว");
       if((S.meta.cost_centers||[]).length && !fd.cost_center) throw new Error("กรุณาเลือก Cost Center");
       if(fd.password.length < 8) throw new Error("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
       if(fd.password !== fd.password2) throw new Error("ยืนยันรหัสผ่านไม่ตรงกัน");
-      setSession(await api("/api/auth/register", {method:"POST", body:{email:fd.email, display_name:fd.display_name, cost_center:fd.cost_center||"", password:fd.password}, noLogout:true}));
+      setSession(await api("/api/auth/register", {method:"POST", body:{email:fd.email, display_name:fd.display_name, employee_id:fd.employee_id.trim(), cost_center:fd.cost_center||"", password:fd.password}, noLogout:true}));
       toast("สมัครใช้งานเรียบร้อย"); afterLogin(); return;
     }
     if(f.dataset.form === "changepw"){
@@ -1149,6 +1379,10 @@ const A = {
       const keep = Object.fromEntries(new FormData($("form[data-form=register]"))); render();
       Object.entries(keep).forEach(([k,v]) => { const el = $(`[name=${k}]`); if(el) el.value = v; }); }).catch(()=>{}); },
   "to-login": () => { S.view = "login"; render(); },
+  "guide": () => openGuide(),
+  "guide-next": () => { S.guideStep = (S.guideStep||0) + 1; render(); window.scrollTo(0,0); },
+  "guide-prev": () => { S.guideStep = Math.max(0, (S.guideStep||0) - 1); render(); window.scrollTo(0,0); },
+  "guide-close": () => closeGuide(),
   "logout": () => logout(),
   "account": () => accountSheet(),
   "nav": el => { const v = el.dataset.v;
@@ -1177,7 +1411,13 @@ const A = {
   "rev-export": () => download("/api/records/export?" + revParams(), "SummaryTrip.xlsx"),
   "rc-type": el => { S.recon.mtype = el.dataset.v; rcReload(); },
   "rc-leg": el => { S.recon.leg = el.dataset.v; rcReload(); },
-  "rc-more": () => { S.recon.showAll = true; render(); },
+  "rc-more": () => { S.recon.limit += 200; render(); },
+  "rc-mode": el => { S.recon.mode = el.dataset.v; rcReload(); },
+  "rc-fstat": el => { S.recon.fstat = el.dataset.v; S.recon.limit = 100; render(); },
+  "rc-fcat": el => { S.recon.fcat = el.dataset.v; S.recon.limit = 100; render(); },
+  "rc-sort": el => { const R = S.recon, k = el.dataset.k; R.sort = R.sort[0] === k ? [k, -R.sort[1]] : [k, k === "absdiff" ? -1 : 1]; render(); },
+  "rc-note": el => rcNoteSheet(+el.dataset.i),
+  "rc-cats": () => rcCatsSheet(),
   "rc-export": () => download("/api/admin/reconcile/export?" + rcParams(), "Reconcile.xlsx"),
   "sync-now": async el => { el.disabled = true; el.innerHTML = "กำลังซิงค์…";
     try{ const r = await api("/api/admin/sync", {method:"POST"});
@@ -1201,14 +1441,18 @@ document.addEventListener("click", e => {
 
 document.addEventListener("input", e => {
   const el = e.target, k = el.dataset && el.dataset.in; if(!k) return;
+  if(k === "regemail"){ const sf = $("#rEsfx"); if(sf) sf.style.display = el.value.includes("@") ? "none" : ""; return; }
   if(k === "docq"){ S.docQ = el.value; S.docBusy = true; renderDocRes(); docSearch(); return; }
   if(k === "cell"){
     let v = el.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0,5);
     if(v !== el.value) el.value = v;
     const i = +el.dataset.i, r = S.entry.rows[i]; r.vals[el.dataset.k] = v;
     const b = r.baseline ? r.baseline[el.dataset.k] : null;
-    el.classList.toggle("diff", b != null && v !== "" && Number(v) !== b);
-    el.classList.toggle("filled", v !== "" && !(b != null && Number(v) !== b));
+    const box = el.closest(".cellbox") || el;
+    box.classList.toggle("diff", b != null && v !== "" && Number(v) !== b);
+    box.classList.toggle("filled", v !== "" && !(b != null && Number(v) !== b));
+    const bl = box.parentElement && box.parentElement.querySelector(".base");
+    if(bl && b != null) bl.innerHTML = (b > 0 || (v !== "" && Number(v) !== b)) ? `ออก ${b}` : "&nbsp;";
     const row = $("#row"+i); if(row){ row.classList.toggle("done", rowEntered(r)); row.classList.toggle("extra", !rowEntered(r) && !r.in_plan && !r.baseline); }
     markDirty(); updateTotals(); return;
   }
@@ -1216,6 +1460,7 @@ document.addEventListener("input", e => {
     const s = el.closest(".search"), b = $("[data-act=filter-clear]", s);
     if(S.entry.filter && !b){ s.insertAdjacentHTML("beforeend", `<button class="iconbtn" style="width:32px;height:32px" data-act="filter-clear" aria-label="ล้างตัวกรอง">${I.x}</button>`); }
     if(!S.entry.filter && b) b.remove(); return; }
+  if(k === "rcq"){ S.recon.q = el.value; rcSearch(); return; }
   if(k === "revq"){ S.review.q = el.value; revSearch(); return; }
   if(k === "usq"){ S.users.q = el.value; const pos = el.selectionStart; render(); const i = $("#usQ"); i.focus(); i.setSelectionRange(pos,pos); return; }
 });
@@ -1254,7 +1499,8 @@ document.addEventListener("keydown", e => { if(e.key === "Escape" && $("#layer")
     try{ const r = await api("/api/me", {noLogout:true}); S.user = r.user; afterLogin(); return; }
     catch(e){ if(e.status === 401 || e.status === 403){ S.token = null; lsDel("mhe_token"); } else { toast(e.message, true); } }
   }
-  S.view = "login"; render();
+  if(lsGet("mhe_guide_seen")){ S.view = "login"; } else { S.view = "guide"; S.guideStep = 0; S.guideReturn = "login"; }
+  render();
 })();
 </script>
 </body>

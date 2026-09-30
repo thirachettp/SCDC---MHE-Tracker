@@ -9,9 +9,52 @@ from contextlib import contextmanager
 import psycopg
 from psycopg.rows import dict_row
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-SCHEMA_VERSION = 2
+# Accept the names the Vercel <-> Neon integration creates, in order of preference
+DB_ENV_NAMES = ("DATABASE_URL", "POSTGRES_URL", "NEON_DATABASE_URL", "DATABASE_URL_UNPOOLED",
+                "POSTGRES_URL_NON_POOLING")
+# Prisma-style params that libpq rejects ("invalid URI query parameter")
+_DROP_PARAMS = {"pgbouncer", "schema", "connection_limit", "pool_timeout", "statement_cache_size",
+                "socket_timeout", "connect_timeout"}
+
+
+def _pick_db_url():
+    for name in DB_ENV_NAMES:
+        v = os.environ.get(name, "").strip()
+        if v:
+            return name, v
+    # also accept a custom integration prefix, e.g. STORAGE_DATABASE_URL
+    for name, v in sorted(os.environ.items()):
+        if name.endswith("_DATABASE_URL") and v.strip():
+            return name, v.strip()
+    return "", ""
+
+
+def clean_db_url(raw: str) -> str:
+    """Tolerate what people paste from the Neon console: `psql '...'`, quotes,
+    Prisma-only params, missing sslmode."""
+    s = raw.strip()
+    if s.startswith("psql "):
+        s = s[5:].strip()
+    s = s.strip("'\"").strip()
+    if s.startswith("postgres://"):
+        s = "postgresql://" + s[len("postgres://"):]
+    parts = urlsplit(s)
+    q = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k not in _DROP_PARAMS]
+    host = parts.hostname or ""
+    if "neon.tech" in host and not any(k == "sslmode" for k, _ in q):
+        q.append(("sslmode", "require"))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
+
+
+DB_ENV_NAME, _RAW_DB_URL = _pick_db_url()
+DATABASE_URL = clean_db_url(_RAW_DB_URL) if _RAW_DB_URL else ""
+
+SCHEMA_VERSION = 3
+
+DEFAULT_RECON_CATEGORIES = ["LP คีย์ผิด", "MHE คีย์ผิด", "นับผิดหน้างาน", "สลับสาขา", "ผิด Trip",
+                            "ของค้าง/ส่งรอบถัดไป", "อื่นๆ"]
 
 SCHEMA = [
     # ---- users & auth
@@ -177,12 +220,42 @@ SCHEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS mhe_lines_tn ON mhe_lines(tn_date)",
+    # ---- v3: employee ID, truck type / transporter, reconcile notes
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id TEXT NOT NULL DEFAULT ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS users_employee_id ON users (lower(employee_id)) WHERE employee_id <> ''",
+    "ALTER TABLE plan_lines ADD COLUMN IF NOT EXISTS truck_type TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE plan_lines ADD COLUMN IF NOT EXISTS transporter TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE trip_records ADD COLUMN IF NOT EXISTS truck_type TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE trip_records ADD COLUMN IF NOT EXISTS transporter TEXT NOT NULL DEFAULT ''",
+    """
+    CREATE TABLE IF NOT EXISTS recon_categories (
+        id         BIGSERIAL PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE,
+        active     BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INTEGER NOT NULL DEFAULT 100,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS recon_notes (
+        leg         TEXT NOT NULL,
+        trip_key    TEXT NOT NULL,
+        store_code  TEXT NOT NULL,
+        mtype       TEXT NOT NULL,
+        category_id BIGINT REFERENCES recon_categories(id) ON DELETE SET NULL,
+        note        TEXT NOT NULL DEFAULT '',
+        resolved    BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_by  BIGINT REFERENCES users(id),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (leg, trip_key, store_code, mtype)
+    )
+    """,
 ]
 
 
 def _conninfo():
     if not DATABASE_URL:
-        raise RuntimeError("DATABASE_URL is not set")
+        raise RuntimeError("DATABASE_URL is not set (ยังไม่ได้ตั้ง env DATABASE_URL บน Vercel)")
     return DATABASE_URL
 
 
@@ -207,6 +280,16 @@ def migrate():
         c.execute("SELECT pg_advisory_xact_lock(724001)")
         for stmt in SCHEMA:
             c.execute(stmt)
+        # seed default reconcile categories (admins can add more)
+        if not c.execute("SELECT 1 FROM recon_categories LIMIT 1").fetchone():
+            for i, name in enumerate(DEFAULT_RECON_CATEGORIES):
+                c.execute("INSERT INTO recon_categories(name, sort_order) VALUES (%s, %s)", (name, i * 10))
+        # v3 adds truck type / transporter to plan lines -> let Drive/Apps Script re-send
+        # recent files once so existing loads get the new columns
+        if not c.execute("SELECT 1 FROM app_state WHERE key = 'reimport_v3'").fetchone():
+            c.execute("UPDATE plan_files SET modified_time = NULL WHERE status = 'ok' "
+                      "AND drive_file_id NOT LIKE 'upload:%%' AND imported_at > now() - interval '14 days'")
+            c.execute("INSERT INTO app_state(key, value) VALUES ('reimport_v3', 'done')")
         c.execute(
             "INSERT INTO app_state(key, value) VALUES ('schema_version', %s) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",

@@ -131,6 +131,8 @@ def parse_plan(content: bytes):
             "trip": trip_cols[0],
             "load": trip_cols[1] if len(trip_cols) > 1 else None,
             "truck": next((i for i, n in enumerate(norm) if n in ("idtruck", "truckid", "truck")), None),
+            "truck_type": next((i for i, n in enumerate(norm) if n in ("typetruck", "trucktype")), None),
+            "transporter": next((i for i, n in enumerate(norm) if n in ("transporter", "transport")), None),
             "code": norm.index("storecode"),
             "name": next((i for i, n in enumerate(norm) if n == "storename"), None),
             "pallet": next((i for i, n in enumerate(norm) if n == "pallet"), None),
@@ -143,7 +145,7 @@ def parse_plan(content: bytes):
             return row[i] if i is not None and i < len(row) else None
 
         out = []
-        cur_trip = cur_truck = cur_load = ""
+        cur_trip = cur_truck = cur_load = cur_ttype = cur_tp = ""
         seq_by_load = {}
         for row in rows[h + 1:]:
             if not any(c not in (None, "") for c in row):
@@ -151,10 +153,16 @@ def parse_plan(content: bytes):
             t = cell_str(g(row, "trip"))
             if t and t != cur_trip:
                 # new trip group: don't carry the previous group's load/truck over
-                cur_trip, cur_truck, cur_load = t, "", ""
+                cur_trip, cur_truck, cur_load, cur_ttype, cur_tp = t, "", "", "", ""
             tr = cell_str(g(row, "truck"))
             if tr and not cur_truck:
                 cur_truck = tr
+            tt = cell_str(g(row, "truck_type"))
+            if tt and not cur_ttype:
+                cur_ttype = tt
+            tp = cell_str(g(row, "transporter"))
+            if tp and not cur_tp:
+                cur_tp = tp
             # The Load No. column sometimes repeats the Trip No. on the 2nd row of a
             # group (real file 25.09.26) -> only the first real value of a group counts.
             ld = cell_str(g(row, "load"))
@@ -171,6 +179,8 @@ def parse_plan(content: bytes):
                 "load_no": load_no,
                 "trip_no": cur_trip,
                 "truck_id": cur_truck,
+                "truck_type": cur_ttype,
+                "transporter": cur_tp,
                 "store_code": code,
                 "store_name": cell_str(g(row, "name")),
                 "seq": seq_by_load[load_no],

@@ -99,6 +99,7 @@ def _cc_name(c, code):
 
 def _user_out(u, c):
     return {"id": u["id"], "email": u["email"], "display_name": u["display_name"],
+            "employee_id": u.get("employee_id", ""),
             "cost_center": u["cost_center"], "cost_center_name": _cc_name(c, u["cost_center"]),
             "role": u["role"], "active": u["active"], "must_change_password": u["must_change_password"]}
 
@@ -142,8 +143,31 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 class RegisterIn(BaseModel):
     email: str
     display_name: str
+    employee_id: str = ""
     cost_center: str = ""
     password: str
+
+
+EMAIL_DOMAIN = os.environ.get("DEFAULT_EMAIL_DOMAIN", "central.co.th").strip().lstrip("@").lower()
+EMP_RE = re.compile(r"^[A-Za-z0-9-]{3,20}$")
+
+
+def _full_email(s: str) -> str:
+    """'trthirachet' -> 'trthirachet@central.co.th'; full addresses pass through."""
+    s = (s or "").strip().lower()
+    if s and "@" not in s and EMAIL_DOMAIN:
+        s = f"{s}@{EMAIL_DOMAIN}"
+    return s
+
+
+def _valid_emp(c, emp: str, *, exclude_id=None) -> str:
+    emp = (emp or "").strip().upper()
+    if not EMP_RE.match(emp):
+        raise AppError(400, "รหัสพนักงานใช้ตัวอักษร/ตัวเลข 3–20 ตัว")
+    r = c.execute("SELECT id FROM users WHERE lower(employee_id) = lower(%s)", (emp,)).fetchone()
+    if r and r["id"] != exclude_id:
+        raise AppError(409, f"รหัสพนักงาน {emp} ถูกใช้สมัครแล้ว")
+    return emp
 
 
 class LoginIn(BaseModel):
@@ -166,7 +190,7 @@ def _check_password(pw: str):
 
 @app.post("/api/auth/register")
 def register(body: RegisterIn, c=Depends(db, scope="function")):
-    email = body.email.strip().lower()
+    email = _full_email(body.email)
     name = body.display_name.strip()
     cc = body.cost_center.strip()
     if not EMAIL_RE.match(email):
@@ -174,22 +198,28 @@ def register(body: RegisterIn, c=Depends(db, scope="function")):
     if not name or len(name) > 60:
         raise AppError(400, "กรุณากรอกชื่อที่แสดง (ไม่เกิน 60 ตัวอักษร)")
     cc = _valid_cc(c, cc, required=True)
+    emp = _valid_emp(c, body.employee_id)
     _check_password(body.password)
     if c.execute("SELECT 1 FROM users WHERE email = %s", (email,)).fetchone():
         raise AppError(409, "อีเมลนี้ถูกใช้สมัครแล้ว")
     u = c.execute(
-        """INSERT INTO users(email, display_name, cost_center, password_hash)
-           VALUES (%s,%s,%s,%s) RETURNING *""",
-        (email, name, cc, auth.hash_password(body.password))).fetchone()
+        """INSERT INTO users(email, display_name, employee_id, cost_center, password_hash)
+           VALUES (%s,%s,%s,%s,%s) RETURNING *""",
+        (email, name, emp, cc, auth.hash_password(body.password))).fetchone()
     return {"token": auth.make_token(u["id"], u["token_version"]), "user": _user_out(u, c)}
 
 
 @app.post("/api/auth/login")
 def login(body: LoginIn, c=Depends(db, scope="function")):
-    email = body.email.strip().lower()
-    u = c.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
+    ident = body.email.strip()
+    u = None
+    if ident and "@" not in ident:     # employee ID first, then short e-mail
+        u = c.execute("SELECT * FROM users WHERE employee_id <> '' AND lower(employee_id) = lower(%s)",
+                      (ident,)).fetchone()
+    if not u:
+        u = c.execute("SELECT * FROM users WHERE email = %s", (_full_email(ident),)).fetchone()
     if not u or not auth.verify_password(body.password, u["password_hash"]):
-        raise AppError(401, "อีเมลหรือรหัสผ่านไม่ถูกต้อง")
+        raise AppError(401, "อีเมล/รหัสพนักงาน หรือรหัสผ่านไม่ถูกต้อง")
     if not u["active"]:
         raise AppError(403, "บัญชีนี้ถูกปิดการใช้งาน กรุณาติดต่อ Admin")
     c.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (u["id"],))
@@ -223,7 +253,7 @@ def logout_all(u=Depends(current_user), c=Depends(db, scope="function")):
 @app.get("/api/meta")
 def meta(c=Depends(db, scope="function")):
     ccs = c.execute("SELECT code, name FROM cost_centers WHERE active ORDER BY code").fetchall()
-    return {"version": VERSION, "cost_centers": ccs}
+    return {"version": VERSION, "cost_centers": ccs, "email_domain": EMAIL_DOMAIN}
 
 
 # ========================================================================= sync
@@ -370,6 +400,8 @@ def doc_detail(doc: str, leg: str = Query(..., pattern="^(out|ret)$"),
         "load_no": (head and head["load_no"]) or (src and src["load_no"]) or "",
         "trip_no": (head and head["trip_no"]) or (src and src["trip_no"]) or "",
         "truck_id": (head and head["truck_id"]) or (src and src["truck_id"]) or "",
+        "truck_type": (head and head["truck_type"]) or (src and src["truck_type"]) or "",
+        "transporter": (head and head["transporter"]) or (src and src["transporter"]) or "",
         "in_plan": bool(plan),
         "has_baseline": base is not None,
         "leg": leg,
@@ -483,8 +515,10 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
     load_no = (head and head["load_no"]) or (b and b["load_no"]) or (old and old["load_no"]) or doc
     trip_no = (head and head["trip_no"]) or (b and b["trip_no"]) or (old and old["trip_no"]) or ""
     truck = (head and head["truck_id"]) or (b and b["truck_id"]) or (old and old["truck_id"]) or ""
+    ttype = (head and head["truck_type"]) or (b and b["truck_type"]) or (old and old["truck_type"]) or ""
+    tport = (head and head["transporter"]) or (b and b["transporter"]) or (old and old["transporter"]) or ""
     fields = (body.door_no, bool(plan), complete, len(expected), len(stored), u["id"],
-              load_no, parsing.doc_key(load_no), trip_no, parsing.doc_key(trip_no), truck)
+              load_no, parsing.doc_key(load_no), trip_no, parsing.doc_key(trip_no), truck, ttype, tport)
 
     if old:
         old_lines = {l["store_code"]: l for l in c.execute(
@@ -493,16 +527,16 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
         rec = c.execute(
             """UPDATE trip_records SET door_no=%s, in_plan=%s, complete=%s, expected_stores=%s,
                    entered_stores=%s, updated_by=%s, updated_at=now(), load_no=%s, load_key=%s,
-                   trip_no=%s, trip_key=%s, truck_id=%s
+                   trip_no=%s, trip_key=%s, truck_id=%s, truck_type=%s, transporter=%s
                WHERE id=%s RETURNING *""", fields + (old["id"],)).fetchone()
         c.execute("DELETE FROM record_lines WHERE record_id = %s", (rec["id"],))
         action = "update"
     else:
         rec = c.execute(
             """INSERT INTO trip_records(door_no, in_plan, complete, expected_stores, entered_stores,
-                   updated_by, load_no, load_key, trip_no, trip_key, truck_id,
+                   updated_by, load_no, load_key, trip_no, trip_key, truck_id, truck_type, transporter,
                    created_by, doc_no, doc_key, leg)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (doc_key, leg) DO NOTHING RETURNING *""",
             fields + (u["id"], doc, key, body.leg)).fetchone()
         if not rec:   # someone else created it a moment ago
@@ -581,7 +615,7 @@ def _parse_date(s, default):
 
 
 LIST_SQL = """
-SELECT r.id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.door_no, r.complete, r.in_plan,
+SELECT r.id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.truck_type, r.transporter, r.door_no, r.complete, r.in_plan,
        r.expected_stores, r.entered_stores, r.created_at, r.updated_at,
        cu.display_name AS created_by, uu.display_name AS updated_by,
        COALESCE(SUM(l.pallet),0)::int pallet, COALESCE(SUM(l.totebox),0)::int totebox,
@@ -628,7 +662,7 @@ def export_records(date_from: str = "", date_to: str = "", q: str = "", status: 
     rows = c.execute(
         f"""SELECT r.updated_at, r.created_at, r.doc_no, r.leg, r.trip_no, r.truck_id, r.door_no,
                    r.complete, cu.display_name created_by, uu.display_name updated_by,
-                   uu.cost_center, cc.name AS cost_center_name, l.store_code, l.store_name, l.in_plan, l.deleted,
+                   uu.employee_id, uu.cost_center, cc.name AS cost_center_name, r.truck_type, r.transporter, l.store_code, l.store_name, l.in_plan, l.deleted,
                    l.pallet, l.totebox, l.rollcage, l.box, l.comment
             FROM trip_records r JOIN record_lines l ON l.record_id = r.id
             LEFT JOIN users cu ON cu.id = r.created_by LEFT JOIN users uu ON uu.id = r.updated_by
@@ -638,12 +672,12 @@ def export_records(date_from: str = "", date_to: str = "", q: str = "", status: 
     ws = wb.active
     ws.title = "Records"
     ws.append(["Created", "Updated", "Document No.", "ขา", "Trip No.", "Truck", "Door", "สถานะ",
-               "ผู้บันทึก", "แก้ไขล่าสุดโดย", "Cost Center", "Cost Center Name", "Store Code", "Store Name", "ในแผน",
+               "ผู้บันทึก", "แก้ไขล่าสุดโดย", "รหัสพนักงาน", "Cost Center", "Cost Center Name", "ประเภทรถ", "Transporter", "Store Code", "Store Name", "ในแผน",
                "ลบ (=0)", "Pallet", "Totebox", "Rollcage", "Box", "Comment"])
     for r in rows:
         ws.append([_xl_dt(r["created_at"]), _xl_dt(r["updated_at"]), r["doc_no"],
                    "ขากลับ" if r["leg"] == "ret" else "ขาออก", r["trip_no"], r["truck_id"], r["door_no"],
-                   "ครบ" if r["complete"] else "ยังไม่ครบ", r["created_by"], r["updated_by"], r["cost_center"], r["cost_center_name"],
+                   "ครบ" if r["complete"] else "ยังไม่ครบ", r["created_by"], r["updated_by"], r["employee_id"], r["cost_center"], r["cost_center_name"], r["truck_type"], r["transporter"],
                    r["store_code"], r["store_name"], "Y" if r["in_plan"] else "N", "Y" if r["deleted"] else "",
                    r["pallet"], r["totebox"], r["rollcage"], r["box"], r["comment"]])
     return _xlsx(wb, f"SummaryTrip_{df:%Y%m%d}-{dt:%Y%m%d}.xlsx")
@@ -664,7 +698,13 @@ def _xlsx(wb, name):
     buf.seek(0)
     return StreamingResponse(
         buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        headers={"Content-Disposition": _content_disposition(name)})
+
+
+def _content_disposition(name):
+    from urllib.parse import quote
+    ascii_name = name.encode("ascii", "replace").decode().replace("?", "_")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
 
 
 @app.get("/api/records/{rid}")
@@ -814,12 +854,13 @@ class UserPatch(BaseModel):
     active: Optional[bool] = None
     cost_center: Optional[str] = None
     display_name: Optional[str] = None
+    employee_id: Optional[str] = None
 
 
 @app.get("/api/admin/users")
 def users(u=Depends(admin_user), c=Depends(db, scope="function")):
     rows = c.execute(
-        """SELECT u.id, u.email, u.display_name, u.cost_center, COALESCE(cc.name, '') AS cost_center_name,
+        """SELECT u.id, u.email, u.display_name, u.employee_id, u.cost_center, COALESCE(cc.name, '') AS cost_center_name,
                   u.role, u.active, u.created_at, u.last_login_at
            FROM users u LEFT JOIN cost_centers cc ON cc.code = u.cost_center
            ORDER BY u.active DESC, u.role, u.display_name""").fetchall()
@@ -850,6 +891,9 @@ def patch_user(uid: int, body: UserPatch, u=Depends(admin_user), c=Depends(db, s
     if body.cost_center is not None:
         sets.append("cost_center = %s")
         args.append(_valid_cc(c, body.cost_center, required=False))
+    if body.employee_id is not None:
+        sets.append("employee_id = %s")
+        args.append(_valid_emp(c, body.employee_id, exclude_id=uid))
     if body.display_name is not None and body.display_name.strip():
         sets.append("display_name = %s")
         args.append(body.display_name.strip()[:60])
@@ -1002,35 +1046,52 @@ def _ser(v):
     return v.isoformat() if isinstance(v, (date, datetime)) else v
 
 
+MODES = ("both", "all")
+
+
 @app.get("/api/admin/reconcile")
 def reconcile_view(date_from: str = "", date_to: str = "", leg: str = "ret", bu: str = "",
-                   mtype: str = "all", u=Depends(admin_user), c=Depends(db, scope="function")):
+                   mtype: str = "all", mode: str = "both",
+                   u=Depends(admin_user), c=Depends(db, scope="function")):
     df, dt = _recon_args(date_from, date_to, leg, mtype)
-    res = reconcile.run(c, date_from=df, date_to=dt, leg=leg, bu=bu, mtype=mtype)
+    if mode not in MODES:
+        raise AppError(400, "mode ไม่ถูกต้อง")
+    res = reconcile.run(c, date_from=df, date_to=dt, leg=leg, bu=bu, mtype=mtype, mode=mode)
     res.pop("all_rows")
-    res["diffs"] = [{k: _ser(v) for k, v in d.items()} for d in res["diffs"][:300]]
-    res["only_mhe_trips"] = [{k: _ser(v) for k, v in d.items()} for d in res["only_mhe_trips"][:100]]
+    res["diffs_total"] = len(res["diffs"])
+    res["diffs"] = [{k: _ser(v) for k, v in d.items()} for d in res["diffs"][:5000]]
+    res["only_mhe_trips"] = [{k: _ser(v) for k, v in d.items()} for d in res["only_mhe_trips"][:200]]
     res["range"] = {"from": df.isoformat(), "to": dt.isoformat()}
+    res["categories"] = c.execute(
+        "SELECT id, name, active FROM recon_categories ORDER BY active DESC, sort_order, id").fetchall()
     return res
 
 
 @app.get("/api/admin/reconcile/export")
 def reconcile_export(date_from: str = "", date_to: str = "", leg: str = "ret", bu: str = "",
-                     mtype: str = "all", u=Depends(admin_user), c=Depends(db, scope="function")):
+                     mtype: str = "all", mode: str = "both",
+                     u=Depends(admin_user), c=Depends(db, scope="function")):
     import openpyxl
     df, dt = _recon_args(date_from, date_to, leg, mtype)
-    res = reconcile.run(c, date_from=df, date_to=dt, leg=leg, bu=bu, mtype=mtype)
+    if mode not in MODES:
+        raise AppError(400, "mode ไม่ถูกต้อง")
+    res = reconcile.run(c, date_from=df, date_to=dt, leg=leg, bu=bu, mtype=mtype, mode=mode)
     col = reconcile.MHE_COL_LABEL[leg]
-    st_th = {"match": "ตรงกัน", "mismatch": "ไม่ตรง", "only_lp": "ไม่มีใน MHE"}
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Compare"
     ws.append(["TNDate / วันที่คีย์", "Trip No.", "Document No.", "BU", "Store Code", "Store Name", "Type",
-               "LP", f"MHE ({col})", "ต่าง (LP-MHE)", "สถานะ", "คีย์โดย"])
+               "LP", f"MHE ({col})", "ต่าง (LP-MHE)", "สถานะ", "คีย์โดย",
+               "ประเภทปัญหา", "หมายเหตุ", "แก้ไขแล้ว", "บันทึกหมายเหตุโดย"])
     for r in sorted(res["all_rows"], key=lambda r: (str(r["tn_date"]), r["trip_no"], r["store_code"])):
         ws.append([r["tn_date"], r["trip_no"], r["doc_no"], r["bu"], r["store_code"], r["store_name"],
-                   reconcile.TYPE_LABEL[r["mtype"]], r["lp"], r["mhe"], r["diff"], st_th[r["status"]],
-                   r["keyed_by"]])
+                   reconcile.TYPE_LABEL[r["mtype"]], r["lp"], r["mhe"], r["diff"],
+                   reconcile.STATUS_LABEL[r["status"]], r["keyed_by"],
+                   r["category"], r["note"], "Y" if r["resolved"] else "", r["note_by"]])
+    ws4 = wb.create_sheet("By category")
+    ws4.append(["ประเภทปัญหา", "จำนวนรายการ"])
+    for x in res["by_category"]:
+        ws4.append([x["name"], x["count"]])
     ws2 = wb.create_sheet("MHE only (LP ไม่ได้คีย์)")
     ws2.append(["TNDate", "Trip No.", "BU", "จำนวนสาขา", f"รวม {col}"])
     for t in res["only_mhe_trips"]:
@@ -1039,7 +1100,96 @@ def reconcile_export(date_from: str = "", date_to: str = "", leg: str = "ret", b
     ws3.append(["ผู้คีย์", "ตรงกัน", "ทั้งหมด", "%"])
     for p in res["people"]:
         ws3.append([p["name"], p["match"], p["total"], p["pct"]])
-    return _xlsx(wb, f"Reconcile_{leg}_{df:%Y%m%d}-{dt:%Y%m%d}.xlsx")
+    tag = "all" if mode == "all" else "both-keyed"
+    return _xlsx(wb, f"Reconcile_{leg}_{tag}_{df:%Y%m%d}-{dt:%Y%m%d}.xlsx")
+
+
+class ReconNoteIn(BaseModel):
+    leg: str = Field(pattern="^(out|ret)$")
+    trip_key: str
+    store_code: str
+    mtype: str = Field(pattern="^(pallet|totebox)$")
+    category_id: Optional[int] = None
+    note: str = ""
+    resolved: bool = False
+
+
+@app.put("/api/admin/reconcile/note")
+def reconcile_note(body: ReconNoteIn, u=Depends(admin_user), c=Depends(db, scope="function")):
+    if not body.trip_key.strip() or not body.store_code.strip():
+        raise AppError(400, "ข้อมูลรายการไม่ครบ")
+    if body.category_id is not None and not c.execute(
+            "SELECT 1 FROM recon_categories WHERE id = %s", (body.category_id,)).fetchone():
+        raise AppError(400, "ไม่พบประเภทปัญหา")
+    note = body.note.strip()[:1000]
+    if body.category_id is None and not note and not body.resolved:
+        c.execute("DELETE FROM recon_notes WHERE leg=%s AND trip_key=%s AND store_code=%s AND mtype=%s",
+                  (body.leg, body.trip_key, body.store_code, body.mtype))
+        return {"ok": True, "cleared": True}
+    c.execute(
+        """INSERT INTO recon_notes(leg, trip_key, store_code, mtype, category_id, note, resolved, updated_by)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (leg, trip_key, store_code, mtype) DO UPDATE SET
+               category_id = EXCLUDED.category_id, note = EXCLUDED.note, resolved = EXCLUDED.resolved,
+               updated_by = EXCLUDED.updated_by, updated_at = now()""",
+        (body.leg, body.trip_key, body.store_code, body.mtype, body.category_id, note, body.resolved, u["id"]))
+    return {"ok": True}
+
+
+class CategoryIn(BaseModel):
+    name: str
+
+
+class CategoryPatch(BaseModel):
+    name: Optional[str] = None
+    active: Optional[bool] = None
+
+
+@app.get("/api/admin/recon-categories")
+def recon_categories(u=Depends(admin_user), c=Depends(db, scope="function")):
+    return {"items": c.execute(
+        """SELECT rc.id, rc.name, rc.active, count(n.*)::int AS used
+           FROM recon_categories rc LEFT JOIN recon_notes n ON n.category_id = rc.id
+           GROUP BY rc.id ORDER BY rc.active DESC, rc.sort_order, rc.id""").fetchall()}
+
+
+@app.post("/api/admin/recon-categories")
+def recon_category_add(body: CategoryIn, u=Depends(admin_user), c=Depends(db, scope="function")):
+    name = body.name.strip()[:60]
+    if not name:
+        raise AppError(400, "กรุณาตั้งชื่อประเภทปัญหา")
+    r = c.execute(
+        """INSERT INTO recon_categories(name, sort_order)
+           VALUES (%s, (SELECT COALESCE(max(sort_order), 0) + 10 FROM recon_categories))
+           ON CONFLICT (name) DO NOTHING RETURNING id""", (name,)).fetchone()
+    if not r:
+        raise AppError(409, f"มีประเภท \"{name}\" อยู่แล้ว")
+    return {"id": r["id"]}
+
+
+@app.patch("/api/admin/recon-categories/{cid}")
+def recon_category_patch(cid: int, body: CategoryPatch, u=Depends(admin_user), c=Depends(db, scope="function")):
+    if not c.execute("SELECT 1 FROM recon_categories WHERE id = %s", (cid,)).fetchone():
+        raise AppError(404, "ไม่พบประเภทปัญหา")
+    if body.name is not None:
+        name = body.name.strip()[:60]
+        if not name:
+            raise AppError(400, "กรุณาตั้งชื่อประเภทปัญหา")
+        if c.execute("SELECT 1 FROM recon_categories WHERE name = %s AND id <> %s", (name, cid)).fetchone():
+            raise AppError(409, f"มีประเภท \"{name}\" อยู่แล้ว")
+        c.execute("UPDATE recon_categories SET name = %s WHERE id = %s", (name, cid))
+    if body.active is not None:
+        c.execute("UPDATE recon_categories SET active = %s WHERE id = %s", (body.active, cid))
+    return {"ok": True}
+
+
+@app.delete("/api/admin/recon-categories/{cid}")
+def recon_category_delete(cid: int, u=Depends(admin_user), c=Depends(db, scope="function")):
+    n = c.execute("SELECT count(*)::int n FROM recon_notes WHERE category_id = %s", (cid,)).fetchone()["n"]
+    if n:
+        raise AppError(400, f"มีรายการใช้ประเภทนี้อยู่ {n} รายการ — ใช้ปิดการใช้งานแทน")
+    c.execute("DELETE FROM recon_categories WHERE id = %s", (cid,))
+    return {"ok": True}
 
 
 # ======================================================================= health

@@ -16,7 +16,13 @@ MHE_COL_LABEL = {"ret": "Out", "out": "In"}
 TYPE_LABEL = {"pallet": "Pallet", "totebox": "Totebox"}
 
 
-def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all"):
+STATUS_LABEL = {"match": "ตรงกัน", "mismatch": "จำนวนไม่ตรง", "only_lp": "ไม่มีใน MHE",
+                "lp_missing": "LP ยังไม่ได้คีย์"}
+
+
+def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all", mode="both"):
+    """mode 'both': only trips keyed on both sides (keying accuracy)
+       mode 'all' : every line from either side (completeness)"""
     col = LEG_COL[leg]
     types = ["pallet", "totebox"] if mtype == "all" else [mtype]
 
@@ -54,9 +60,12 @@ def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all"):
                 "WHERE record_id = ANY(%s)", (rec_ids,)).fetchall():
             lines_by_rec[l["record_id"]][l["store_code"]] = l
 
-    store_bu = {r["code"]: r["bu"] for r in c.execute("SELECT code, bu FROM stores").fetchall()}
+    st_rows = c.execute("SELECT code, name, bu FROM stores").fetchall()
+    store_bu = {r["code"]: r["bu"] for r in st_rows}
+    store_nm = {r["code"]: r["name"] for r in st_rows}
 
-    rows = []           # every compared pair
+    rows = []            # trips keyed on both sides: match / mismatch
+    lp_missing = []      # MHE lines of trips LP hasn't keyed
     only_mhe_trips = []
     for tk, mlines in mhe_by_trip.items():
         rec = rec_for_trip.get(tk)
@@ -67,12 +76,20 @@ def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all"):
                 "stores": len({m["store_code"] for m in mlines}), "qty": tot,
                 "bu": ", ".join(sorted({m["bu"] for m in mlines if m["bu"]})),
             })
+            for m in mlines:
+                if m[col]:
+                    lp_missing.append({
+                        "trip_no": m["trip_no"], "trip_key": tk, "doc_no": "", "record_id": None,
+                        "store_code": m["store_code"], "store_name": m["store_name"], "bu": m["bu"],
+                        "mtype": m["mtype"], "lp": None, "mhe": m[col], "diff": -m[col],
+                        "keyed_by": "", "status": "lp_missing", "tn_date": m["tn_date"],
+                    })
             continue
         lp = lines_by_rec[rec["id"]]
         mh = {(m["store_code"], m["mtype"]): m for m in mlines}
-        stores = {m["store_code"] for m in mlines} | set(lp)
-        for sc in stores:
-            if bu and sc not in {m["store_code"] for m in mlines} and store_bu.get(sc, "") != bu:
+        mstores = {m["store_code"] for m in mlines}
+        for sc in mstores | set(lp):
+            if bu and sc not in mstores and store_bu.get(sc, "") != bu:
                 continue
             for t in types:
                 m = mh.get((sc, t))
@@ -82,9 +99,9 @@ def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all"):
                 if lp_v == 0 and mhe_v == 0:
                     continue
                 rows.append({
-                    "trip_no": mlines[0]["trip_no"], "doc_no": rec["doc_no"], "record_id": rec["id"],
-                    "store_code": sc,
-                    "store_name": (m and m["store_name"]) or (l and l["store_name"]) or "",
+                    "trip_no": mlines[0]["trip_no"], "trip_key": tk, "doc_no": rec["doc_no"],
+                    "record_id": rec["id"], "store_code": sc,
+                    "store_name": (m and m["store_name"]) or (l and l["store_name"]) or store_nm.get(sc, ""),
                     "bu": (m and m["bu"]) or store_bu.get(sc, ""),
                     "mtype": t, "lp": lp_v if l is not None else None, "mhe": mhe_v if m else None,
                     "diff": lp_v - mhe_v, "keyed_by": rec["keyed_by"] or "",
@@ -124,12 +141,16 @@ def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all"):
                     if v == 0:
                         continue
                     only_lp.append({
-                        "trip_no": r["doc_no"], "doc_no": r["doc_no"], "record_id": r["id"],
-                        "store_code": l["store_code"], "store_name": l["store_name"],
+                        "trip_no": r["doc_no"], "trip_key": r["doc_key"], "doc_no": r["doc_no"],
+                        "record_id": r["id"], "store_code": l["store_code"],
+                        "store_name": l["store_name"] or store_nm.get(l["store_code"], ""),
                         "bu": store_bu.get(l["store_code"], ""), "mtype": t, "lp": v, "mhe": None,
                         "diff": v, "keyed_by": r["keyed_by"] or "", "status": "only_lp",
                         "tn_date": r["d"],
                     })
+
+    items = rows if mode == "both" else rows + lp_missing + only_lp
+    _attach_notes(c, leg, items)
 
     match = sum(1 for r in rows if r["status"] == "match")
     mismatch = sum(1 for r in rows if r["status"] == "mismatch")
@@ -142,22 +163,52 @@ def run(c, *, date_from, date_to, leg="ret", bu="", mtype="all"):
         ({"name": k, **v, "pct": round(100 * v["match"] / v["total"], 1) if v["total"] else None}
          for k, v in people.items()), key=lambda x: (x["pct"] is None, -(x["pct"] or 0)))
 
-    diffs = [r for r in rows if r["status"] == "mismatch"] + only_lp
-    diffs.sort(key=lambda r: -abs(r["diff"]))
+    issues = [r for r in items if r["status"] != "match"]
+    issues.sort(key=lambda r: (r["resolved"], -abs(r["diff"])))
     only_mhe_trips.sort(key=lambda t: (t["tn_date"] or date_from, t["trip_no"]), reverse=True)
 
+    by_cat = defaultdict(int)
+    for r in issues:
+        by_cat[r["category"] or "ยังไม่ระบุ"] += 1
+    total = len(items)
     bus = [r["bu"] for r in c.execute(
         "SELECT DISTINCT bu FROM mhe_lines WHERE bu <> '' ORDER BY bu").fetchall()]
     return {
+        "mode": mode,
         "summary": {
-            "match": match, "mismatch": mismatch, "only_lp": len(only_lp),
+            "total": total, "match": match, "mismatch": mismatch,
+            "only_lp": len(only_lp), "lp_missing": len(lp_missing),
             "only_mhe_trips": len(only_mhe_trips),
             "accuracy": round(100 * match / (match + mismatch), 1) if (match + mismatch) else None,
+            "completeness": round(100 * match / total, 1) if total else None,
             "matched_trips": len(rec_for_trip), "mhe_trips": len(mhe_by_trip),
+            "issues": len(issues), "resolved": sum(1 for r in issues if r["resolved"]),
         },
+        "by_category": sorted(({"name": k, "count": v} for k, v in by_cat.items()), key=lambda x: -x["count"]),
         "people": people_list,
-        "diffs": diffs,
+        "diffs": issues,
         "only_mhe_trips": only_mhe_trips,
-        "all_rows": rows + only_lp,
+        "all_rows": items,
         "bus": bus,
     }
+
+
+def _attach_notes(c, leg, items):
+    keys = list({r["trip_key"] for r in items})
+    notes = {}
+    if keys:
+        for n in c.execute(
+                """SELECT n.trip_key, n.store_code, n.mtype, n.category_id, n.note, n.resolved,
+                          n.updated_at, rc.name AS category, u.display_name AS by
+                   FROM recon_notes n LEFT JOIN recon_categories rc ON rc.id = n.category_id
+                   LEFT JOIN users u ON u.id = n.updated_by
+                   WHERE n.leg = %s AND n.trip_key = ANY(%s)""", (leg, keys)).fetchall():
+            notes[(n["trip_key"], n["store_code"], n["mtype"])] = n
+    for r in items:
+        n = notes.get((r["trip_key"], r["store_code"], r["mtype"]))
+        r["category_id"] = n["category_id"] if n else None
+        r["category"] = (n["category"] or "") if n else ""
+        r["note"] = n["note"] if n else ""
+        r["resolved"] = bool(n and n["resolved"])
+        r["note_by"] = (n["by"] or "") if n else ""
+        r["note_at"] = n["updated_at"] if n else None
