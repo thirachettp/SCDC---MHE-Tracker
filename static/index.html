@@ -184,14 +184,47 @@ select.inp{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns=
 .doorbtn.empty{border-style:dashed;background:#fff}
 .doorbtn .k{font-size:11px;font-weight:700;color:var(--warn-ink)}
 .doorbtn .v{font-size:28px;font-weight:700;font-family:var(--mono);color:var(--ink)}
-.cellbox{display:flex;flex-direction:column;align-items:stretch;border:1px solid var(--line2);border-radius:10px;background:#fff;overflow:hidden;cursor:text}
+.cellbox{display:flex;flex-direction:column;align-items:stretch;border:1px solid var(--line2);border-radius:10px;background:#fff;overflow:hidden;cursor:pointer;padding:0;width:100%;font:inherit;color:inherit;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
 .cellbox .cl{font-size:10px;font-weight:700;color:var(--muted);text-align:center;padding-top:4px;letter-spacing:.2px}
-.cellbox .cell{border:0;height:38px;border-radius:0;background:transparent}
-.cellbox .cell:focus{outline:none}
-.cellbox:focus-within{outline:2.5px solid var(--brand);outline-offset:-1px}
+.cellbox .cell{border:0;height:38px;line-height:38px;border-radius:0;background:transparent;display:block}
+.cellbox .cell.ph{color:#A8A39B}
+.cellbox:focus{outline:none}
+.cellbox:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
 .cellbox.filled{background:#F7FBFA;border-color:var(--brand-line)}
 .cellbox.diff{background:var(--warn-bg);border-color:var(--warn-line)}
 .cellbox.diff .cl{color:var(--warn-ink)}
+.cellbox.sel{border:2.5px solid var(--brand);background:var(--brand-soft);box-shadow:0 0 0 4px rgba(15,82,87,.15)}
+.cellbox.sel .cl{color:var(--brand)}
+.cellbox.sel .cell{height:35px;line-height:35px}
+.srow.cur{border:2px solid var(--brand)}
+.doorbtn.sel{border:2.5px solid var(--brand);border-style:solid;background:var(--brand-soft);box-shadow:0 0 0 4px rgba(15,82,87,.15)}
+.doorbtn.sel .k{color:var(--brand)}
+/* app numpad */
+.tripstrip{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;font-size:13px;width:100%;text-align:left;color:inherit;font:inherit}
+.tripstrip .tn{font-family:var(--mono);font-weight:700}
+.tripstrip .tm{color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tripstrip .td{padding:2px 8px;border-radius:8px;background:#FDF3E7;border:1px solid var(--amber);font-weight:700;font-family:var(--mono);flex-shrink:0}
+.tripstrip .td.empty{border-style:dashed;background:#fff;color:var(--warn-ink)}
+body.np-cell .tripcard{display:none}
+body.np-cell .tripstrip{display:flex}
+body.np-open #app{padding-bottom:var(--np-h,330px)}
+#np{position:fixed;left:0;right:0;bottom:0;z-index:40;display:none;justify-content:center;pointer-events:none}
+body.np-open #np{display:flex}
+.np{pointer-events:auto;width:100%;max-width:560px;background:#fff;border-top:1px solid var(--line);box-shadow:0 -8px 24px rgba(28,27,25,.12);padding:10px 12px calc(14px + var(--safe-b));display:flex;flex-direction:column;gap:8px;border-radius:16px 16px 0 0;animation:up .14s ease-out}
+.np .nh{display:flex;align-items:center;gap:8px;min-height:40px}
+.np .nh .who{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np .nh .what{font-size:17px;font-weight:700}
+.np .nh .what small{font-size:13px;font-weight:500;color:var(--faint)}
+.np .nh .tip{font-size:11px;color:var(--muted);text-align:right;line-height:1.4;flex-shrink:0}
+.np .nwarn{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:10px;font-size:13px;color:#6A3A0A}
+.np .keys{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.np .keys button{height:54px;border-radius:12px;border:0;background:#EFECE6;color:var(--ink);font-size:24px;font-weight:700;font-family:var(--mono);-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.np .keys button:active{filter:brightness(.9)}
+.np .keys .kb{background:#E2DED7;font-size:22px}
+.np .keys .kc{background:#F6DEDA;color:#8E2F21;font-size:16px;font-family:inherit}
+.np .keys .kd{grid-row:span 2;height:114px;background:var(--brand);color:#fff;font-size:18px;font-family:inherit}
+.np .keys .kd.go{background:#B35A10;font-size:14px;line-height:1.35;padding:0 4px}
+.np .keys .k0{grid-column:span 3}
 #app.wide{max-width:1320px}
 @media (min-width:1024px){
   #app.wide .main{padding:20px 28px}
@@ -219,6 +252,7 @@ select.inp{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns=
 <body>
 <div id="app"></div>
 <div id="layer"></div>
+<div id="np"></div>
 <script>
 "use strict";
 const VERSION = "__VERSION__";
@@ -412,6 +446,7 @@ function statusPill(complete){ return complete ? `<span class="pill ok">บั�
 // ------------------------------------------------------------------ render
 function render(){
   const app = $("#app");
+  npClose();
   if(S.view === "guide"){
     app.innerHTML = vGuide();
   } else if(!S.user){
@@ -484,7 +519,7 @@ const GUIDE = [
   {c:"var(--brand)", bg:"var(--brand-soft)", ic:"search", t:"② พิมพ์เลข Trip / Load", d:"พิมพ์จากตัวแรก รายการจะกรองให้เอง",
    li:["แตะรายการที่ตรงกับใบงาน","ป้าย <b>มีขาออกแล้ว</b> = มีตัวเลขตั้งต้นให้เทียบ","ถ้าไม่มีในแผน กด <b>ใช้เป็นเลขใหม่</b> แล้วเพิ่มสาขาเอง"]},
   {c:"var(--action)", bg:"#FBEEDD", ic:"edit", t:"③ กรอกจำนวน", d:"ตรวจการ์ดรถด้านบนก่อน แล้วกรอกทีละสาขา",
-   li:["ตรวจ <b>ทะเบียนรถ · ประเภทรถ</b> และกด <b>Door</b> เพื่อใส่ประตู","กรอกตัวเลขในช่องที่มีชื่อกำกับ ช่องว่าง = 0","ตัวเลขเล็ก <b>ออก 3</b> = ขาออก · ช่อง<span style='background:var(--warn-bg);padding:0 4px;border-radius:4px'>สีส้ม</span> = ไม่เท่าขาออก",
+   li:["ตรวจ <b>ทะเบียนรถ · ประเภทรถ</b> และกด <b>Door</b> เพื่อใส่ประตู","<b>แตะช่องไหนก็ได้</b> แล้วกดตัวเลขบนแป้นของแอปด้านล่าง ช่องที่ไม่ได้กรอก = 0","ลืมใส่ Door? กดบันทึกแล้วใส่เลขประตู → กด <b>ไปหน้าสรุป</b> ได้เลย","ตัวเลขเล็ก <b>ออก 3</b> = ขาออก · ช่อง<span style='background:var(--warn-bg);padding:0 4px;border-radius:4px'>สีส้ม</span> = ไม่เท่าขาออก",
        "ของมาไม่เรียง? พิมพ์เลขสาขาในช่อง <b>กรองเลขสาขา</b>",
        `ปุ่ม <span style="display:inline-flex;vertical-align:-3px">${I.comment}</span> ใส่ Comment · <span style="display:inline-flex;vertical-align:-3px;color:#A33A2A">${I.trash}</span> ลบสาขา (บันทึกเป็น 0) · <b>+ เพิ่มสาขา</b>`]},
   {c:"var(--ok-ink)", bg:"var(--ok-bg)", ic:"check", t:"④ ตรวจสรุป แล้วยืนยัน", d:"ระบบสรุปให้ดูก่อนทุกครั้ง",
@@ -645,7 +680,7 @@ function vEntry(){
   if(!E.in_plan && !E.has_baseline && !E.record) banners.push(`<div class="banner grey">${I.info}<div>ไม่พบ Trip นี้ในแผนโหลด — กด <b>เพิ่มสาขา</b> ด้านล่างเพื่อกรอก</div></div>`);
   const visible = E.rows.map((r,i)=>[r,i]).filter(([r]) => rowVisible(r, E.filter));
   return `${hdrBack("กรอกจำนวน", "", "back", `<div style="padding-right:6px">${legPill(E.leg)}</div>`)}
-  <div style="padding:12px 16px 0">${card}</div>
+  <div style="padding:12px 16px 0">${card}${tripStrip(E)}</div>
   <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center;position:sticky;top:70px;z-index:15;background:var(--bg);padding-bottom:6px">
     <div class="search" style="flex:1;border:1.5px solid var(--brand);background:#fff;height:46px">${I.filter}
       <input id="fStore" value="${esc(E.filter)}" placeholder="กรองเลขสาขา เช่น 2013" inputmode="numeric" data-in="filter" autocomplete="off" aria-label="กรองเลขสาขา">
@@ -672,6 +707,19 @@ function tripCard(E){
       <span style="font-size:10px;color:var(--muted)">${E.door?"แตะเพื่อแก้":"แตะเพื่อใส่"}</span></button>
   </div>`;
 }
+// compact one-line card shown while the numpad is open on a quantity cell
+function tripStrip(E){
+  const meta = [E.truck_id, E.truck_type, E.transporter].filter(Boolean).join(" · ");
+  return `<button type="button" class="tripstrip" data-act="door" aria-label="ระบุ Door No."><span class="tn">${esc(E.trip_no || E.doc_no)}</span>
+    <span class="tm">${esc(meta)}</span><span class="td ${E.door?"":"empty"}">DOOR ${E.door ?? "?"}</span></button>`;
+}
+function refreshTrip(){
+  const E = S.entry; if(!E) return;
+  const a = document.createElement("div"); a.innerHTML = tripCard(E) + tripStrip(E);
+  const [nc, ns] = [a.children[0], a.children[1]], c = $(".tripcard"), s = $(".tripstrip");
+  if(c) c.replaceWith(nc); if(s) s.replaceWith(ns);
+  if(S.np && S.np.mode === "door"){ const d = $(".doorbtn"); if(d) d.classList.add("sel"); }
+}
 function rowHtml(r, i){
   const E = S.entry;
   const extra = !r.in_plan && !(r.baseline);
@@ -687,24 +735,29 @@ function rowHtml(r, i){
     return `<div class="srow del" id="row${i}">${head}<div style="font-size:13px;color:var(--ink2);font-weight:600">ลบแล้ว — จะบันทึกเป็น 0 ทุกช่อง</div>
       ${r.comment?`<div class="note">Comment: ${esc(r.comment)}</div>`:""}</div>`;
   }
+  const np = S.np && S.np.mode === "cell" && S.np.i === i ? S.np : null;
   const cells = QK.map(k => {
     const v = r.vals[k], b = r.baseline ? r.baseline[k] : null;
     const diff = b != null && v !== "" && Number(v) !== b;
-    return `<div class="cellw"><label class="cellbox ${diff?"diff":v!==""?"filled":""}"><span class="cl">${QL[k]}</span><input class="cell" value="${esc(v)}" placeholder="–" inputmode="numeric" pattern="[0-9]*" enterkeyhint="next"
-       maxlength="5" data-in="cell" data-i="${i}" data-k="${k}" aria-label="${esc(r.store_code)} ${QL[k]}" autocomplete="off"></label>
+    return `<div class="cellw"><button type="button" class="cellbox ${diff?"diff":v!==""?"filled":""} ${np && np.k===k?"sel":""}" data-act="cell" data-i="${i}" data-k="${k}"
+       aria-label="${esc(r.store_code)} ${QL[k]}"><span class="cl">${QL[k]}</span><span class="cell ${v===""?"ph":""}">${v===""?"–":esc(v)}</span></button>
        <div class="base">${b!=null && (b>0 || diff) ? `ออก ${b}` : "&nbsp;"}</div></div>`;
   }).join("");
-  return `<div class="srow ${cls}" id="row${i}">${head}<div class="cells">${cells}</div>
+  return `<div class="srow ${cls} ${np?"cur":""}" id="row${i}">${head}<div class="cells">${cells}</div>
     ${r.comment?`<div class="note">Comment: ${esc(r.comment)}</div>`:""}</div>`;
 }
 function rerenderRows(){
   const E = S.entry;
   const visible = E.rows.map((r,i)=>[r,i]).filter(([r]) => rowVisible(r, E.filter));
+  if(S.np && S.np.mode === "cell" && !visible.some(([r,i]) => i === S.np.i && !r.deleted)) npClose();
   $("#rows").innerHTML = visible.map(([r,i]) => rowHtml(r,i)).join("") || (E.rows.length?`<div class="empty">ไม่พบสาขาที่ตรงกับ "${esc(E.filter)}"</div>`:"");
   $("#visCnt").textContent = `${visible.length} / ${E.rows.length}`;
   updateTotals();
 }
-function rerenderRow(i){ const el = $("#row"+i); if(el){ el.outerHTML = rowHtml(S.entry.rows[i], i); } updateTotals(); }
+function rerenderRow(i){
+  if(S.np && S.np.mode === "cell" && S.np.i === i && S.entry.rows[i].deleted) npClose();
+  const el = $("#row"+i); if(el){ el.outerHTML = rowHtml(S.entry.rows[i], i); } updateTotals();
+}
 function updateTotals(){
   const E = S.entry; if(!E) return;
   const t = {pallet:0,totebox:0,rollcage:0,box:0};
@@ -716,16 +769,156 @@ function updateTotals(){
     h.textContent = !E.rows.length ? "ยังไม่มีสาขา — กดเพิ่มสาขา" : left ? `กรอกแล้ว ${entered}/${E.rows.length} สาขา · ระบบจะแสดงสรุปให้ตรวจก่อนยืนยัน` : `กรอกครบ ${E.rows.length} สาขา · ระบบจะแสดงสรุปให้ตรวจก่อนยืนยัน`; }
 }
 
-async function editDoor(){
-  const E = S.entry;
-  const v = await ask({title:"Door No.", input:{value:E.door ?? "", mode:"numeric", placeholder:"1–999", max:3}, ok:"ตกลง"});
-  if(v === null) return;
-  const n = parseInt(String(v).trim(), 10);
-  if(!(n >= 1 && n <= 999)){ toast("Door No. ต้องเป็นตัวเลข 1–999", true); return; }
-  E.door = n; markDirty();
-  const tmp = document.createElement("div"); tmp.innerHTML = tripCard(E);
-  $(".tripcard").replaceWith(tmp.firstElementChild);
+// ================================================================ app numpad
+// S.np = {mode:"cell", i, k, fresh} | {mode:"door", val, prev, toConfirm, fresh}
+// fresh = the next digit replaces the current value (first key after selecting)
+function editDoor(toConfirm=false){
+  const E = S.entry; if(!E) return;
+  npClose();
+  S.np = {mode:"door", val: E.door != null ? String(E.door) : "", prev: E.door, toConfirm, fresh: true};
+  document.body.classList.add("np-open");
+  const d = $(".doorbtn"); if(d) d.classList.add("sel");
+  npDraw();
+  const card = $(".tripcard");
+  if(card){ const top = card.getBoundingClientRect().top; if(top < 80 || top > innerHeight * 0.5) window.scrollTo({top: Math.max(0, scrollY + top - 90), behavior:"smooth"}); }
 }
+function npSelect(i, k){
+  const E = S.entry, r = E && E.rows[i]; if(!r || r.deleted) return;
+  const ae = document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) ae.blur();
+  if(S.np && S.np.mode === "door") npDoorCommit(false);
+  const prevRow = S.np && S.np.mode === "cell" ? S.np.i : null;
+  $$(".cellbox.sel").forEach(b => b.classList.remove("sel"));
+  if(prevRow != null){ const pr = $("#row"+prevRow); if(pr) pr.classList.remove("cur"); }
+  S.np = {mode:"cell", i, k, fresh: true};
+  document.body.classList.add("np-open", "np-cell");
+  const box = npBox(); if(box){ box.classList.add("sel"); box.closest(".srow").classList.add("cur"); }
+  npDraw();
+  npReveal();
+}
+function npBox(){ const n = S.np; return n && n.mode === "cell" ? $(`.cellbox[data-i="${n.i}"][data-k="${n.k}"]`) : null; }
+function npClose(){
+  if(!S.np && !document.body.classList.contains("np-open")) return;
+  const wasCell = S.np && S.np.mode === "cell" ? S.np.i : null;
+  S.np = null;
+  document.body.classList.remove("np-open", "np-cell");
+  $$(".cellbox.sel, .doorbtn.sel").forEach(b => b.classList.remove("sel"));
+  if(wasCell != null){ const r = $("#row"+wasCell); if(r) r.classList.remove("cur"); }
+  const host = $("#np"); if(host) host.innerHTML = "";
+}
+// keep the selected row visible between the sticky filter bar and the numpad
+function npReveal(){
+  const box = npBox(); if(!box) return;
+  const row = box.closest(".srow") || box;
+  requestAnimationFrame(() => {
+    const npH = ($("#np .np") || {}).offsetHeight || 330;
+    const bar = $("#fStore"), sb = bar && bar.closest("div[style*=sticky]"), barB = sb ? sb.getBoundingClientRect().bottom : 130;
+    const rc = row.getBoundingClientRect(), bottomLimit = innerHeight - npH - 8;
+    if(rc.bottom > bottomLimit) window.scrollBy({top: rc.bottom - bottomLimit, behavior:"smooth"});
+    else if(rc.top < barB + 6) window.scrollBy({top: rc.top - barB - 6, behavior:"smooth"});
+  });
+}
+function npDraw(){
+  const n = S.np, host = $("#np"); if(!n || !host) return;
+  let head, side, big;
+  if(n.mode === "cell"){
+    const r = S.entry.rows[n.i], b = r.baseline ? r.baseline[n.k] : null;
+    head = `<div class="nh"><div style="flex:1;min-width:0"><div class="who"><span class="mono">${esc(r.store_code)}</span> · ${esc(r.store_name||"-")}</div>
+      <div class="what">${QL[n.k]}${b!=null?` <small>· ขาออก ${b}</small>`:""}</div></div><div class="tip">แตะช่องอื่นด้านบน<br>เพื่อกรอกต่อได้เลย</div></div>`;
+    side = `<button type="button" class="kc" data-np="clear" aria-label="ล้างช่องนี้">ล้าง</button>`;
+    big = `<button type="button" class="kd" data-np="done" aria-label="เสร็จ ปิด numpad">เสร็จ</button>`;
+  } else {
+    head = (n.toConfirm ? `<div class="nwarn">${I.warn}<span>ยังไม่ได้ใส่ <b>Door No.</b> — ใส่แล้วกด "ไปหน้าสรุป" ได้เลย</span></div>` : "")
+      + `<div class="nh"><div style="flex:1"><div class="what">Door No.</div></div><div class="tip">เลข 1–999</div></div>`;
+    side = `<button type="button" class="kc" data-np="cancel" aria-label="ยกเลิก">ยกเลิก</button>`;
+    big = n.toConfirm ? `<button type="button" class="kd go" data-np="done" aria-label="ไปหน้าสรุป">ไปหน้า<br>สรุป ›</button>`
+                      : `<button type="button" class="kd" data-np="done" aria-label="เสร็จ">เสร็จ</button>`;
+  }
+  const d = x => `<button type="button" data-np="${x}" aria-label="${x}">${x}</button>`;
+  host.innerHTML = `<div class="np" role="group" aria-label="แป้นตัวเลข">${head}<div class="keys">
+    ${d(1)}${d(2)}${d(3)}<button type="button" class="kb" data-np="back" aria-label="ลบตัวท้าย">⌫</button>
+    ${d(4)}${d(5)}${d(6)}${side}
+    ${d(7)}${d(8)}${d(9)}${big}
+    <button type="button" class="k0" data-np="0" aria-label="0">0</button></div></div>`;
+  document.documentElement.style.setProperty("--np-h", (host.firstChild.offsetHeight + 12) + "px");
+}
+function npKey(key){
+  const n = S.np; if(!n) return;
+  if(key === "done"){ if(n.mode === "door") npDoorCommit(true); else npClose(); return; }
+  if(key === "cancel"){ if(n.mode === "door"){ S.entry.door = n.prev; npClose(); refreshTrip(); } else npClose(); return; }
+  if(n.mode === "door"){
+    let v = n.val;
+    if(key === "back") v = n.fresh ? "" : v.slice(0, -1);
+    else if(key === "clear") v = "";
+    else v = ((n.fresh ? "" : v) + key).replace(/^0+/, "").slice(0, 3);
+    n.val = v; n.fresh = false;
+    const dv = $(".doorbtn .v"); if(dv) dv.textContent = v || "?";
+    return;
+  }
+  const r = S.entry.rows[n.i]; let v = r.vals[n.k];
+  if(key === "back") v = v.slice(0, -1);
+  else if(key === "clear") v = "";
+  else { v = (n.fresh ? "" : v) + key; v = v.replace(/^0+(?=\d)/, "").slice(0, 5); }
+  n.fresh = false;
+  setCell(n.i, n.k, v);
+}
+// door: validate, store, and (when it came from "บันทึก") continue straight to the summary
+function npDoorCommit(advance){
+  const n = S.np, E = S.entry;
+  const num = parseInt(n.val, 10);
+  if(n.val === ""){ E.door = n.prev; if(advance){ toast("กรุณาระบุ Door No.", true); return; } }
+  else if(!(num >= 1 && num <= 999)){ toast("Door No. ต้องเป็นตัวเลข 1–999", true); if(advance) return; E.door = n.prev; }
+  else { if(num !== E.door){ E.door = num; markDirty(); } }
+  const go = advance && n.toConfirm;
+  npClose(); refreshTrip();
+  if(go) confirmSheet();
+}
+function setCell(i, k, v){
+  const r = S.entry.rows[i]; r.vals[k] = v;
+  const b = r.baseline ? r.baseline[k] : null;
+  const box = $(`.cellbox[data-i="${i}"][data-k="${k}"]`);
+  if(box){
+    const c = $(".cell", box); c.textContent = v === "" ? "–" : v; c.classList.toggle("ph", v === "");
+    box.classList.toggle("diff", b != null && v !== "" && Number(v) !== b);
+    box.classList.toggle("filled", v !== "" && !(b != null && Number(v) !== b));
+    const bl = box.parentElement && box.parentElement.querySelector(".base");
+    if(bl && b != null) bl.innerHTML = (b > 0 || (v !== "" && Number(v) !== b)) ? `ออก ${b}` : "&nbsp;";
+  }
+  const row = $("#row"+i); if(row){ row.classList.toggle("done", rowEntered(r)); row.classList.toggle("extra", !rowEntered(r) && !r.in_plan && !r.baseline); }
+  markDirty(); updateTotals();
+}
+// physical keyboard (PC): digits, Backspace, Delete, Enter/Tab = next cell, Esc = close
+function npMove(step){
+  const boxes = $$(".cellbox"), cur = npBox(), j = boxes.indexOf(cur) + step;
+  if(j >= 0 && j < boxes.length) npSelect(+boxes[j].dataset.i, boxes[j].dataset.k); else npClose();
+}
+// keys act on click (so the tap can't fall through to what's under the panel once it closes);
+// pointerdown only stops the key from taking focus. touch-action:manipulation removes the tap delay.
+document.addEventListener("pointerdown", e => { if(e.target.closest("[data-np]")) e.preventDefault(); });
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-np]"); if(!b) return;
+  e.preventDefault(); npKey(b.dataset.np);
+});
+document.addEventListener("keydown", e => {
+  const n = S.np; if(!n || $("#layer").innerHTML) return;
+  const t = e.target; if(t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  let k = null;
+  if(/^[0-9]$/.test(e.key)) k = e.key;
+  else if(e.key === "Backspace") k = "back";
+  else if(e.key === "Delete") k = n.mode === "cell" ? "clear" : "back";
+  else if(e.key === "Escape") k = n.mode === "door" ? "cancel" : "done";
+  else if(e.key === "Enter"){ if(n.mode === "door") k = "done"; else { e.preventDefault(); npMove(1); return; } }
+  else if(e.key === "Tab" && n.mode === "cell"){ e.preventDefault(); npMove(e.shiftKey ? -1 : 1); return; }
+  if(k == null) return;
+  e.preventDefault(); npKey(k);
+});
+// a text field getting focus (filter, comment…) closes the numpad so the phone keyboard can take over
+document.addEventListener("focusin", e => {
+  if(S.np && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){
+    if(S.np.mode === "door") npDoorCommit(false); else npClose();
+  }
+});
+window.addEventListener("popstate", () => npClose());
 async function editComment(i){
   const r = S.entry.rows[i];
   const v = await ask({title:`Comment · ${r.store_code}`, body: esc(r.store_name), input:{textarea:true, value:r.comment, placeholder:"เช่น สาขายังไม่คืน Pallet 3 ใบ", max:500}, ok:"บันทึก Comment"});
@@ -735,6 +928,7 @@ async function editComment(i){
 async function delRow(i){
   const E = S.entry, r = E.rows[i];
   const removable = !r.known && !r.in_plan && !r.baseline;
+  npClose();
   const ok = await ask({title: removable ? `เอาสาขา ${r.store_code} ออก?` : `ลบสาขา ${r.store_code}?`,
     body: removable ? "สาขานี้เพิ่งเพิ่มเข้ามา จะถูกเอาออกจากรายการ" : `${esc(r.store_name)}<br>สาขาที่ลบจะถูก<b>บันทึกเป็น 0 ทุกช่อง</b> (กดยกเลิกลบได้ภายหลัง)`,
     ok: removable ? "เอาออก" : "ลบ (บันทึกเป็น 0)", danger:true});
@@ -790,17 +984,20 @@ function addStoreSheet(){
 }
 function focusRow(i){
   const el = $("#row"+i); if(!el) return;
-  el.scrollIntoView({behavior:"smooth", block:"center"});
-  const c = $(".cell", el); if(c) setTimeout(()=>c.focus({preventScroll:true}), 250);
+  const r = S.entry.rows[i];
+  if(r && !r.deleted) npSelect(i, QK[0]);
+  else el.scrollIntoView({behavior:"smooth", block:"center"});
 }
 
 // ---------------------------------------------------------------- confirm
 function confirmSheet(){
   const E = S.entry;
   if(!E.rows.length){ toast("ยังไม่มีสาขา กดเพิ่มสาขาก่อน", true); return; }
-  if(!E.door){ editDoor(); toast("กรุณาระบุ Door No. ก่อนบันทึก", true); return; }
   const entered = E.rows.filter(rowEntered);
   if(!entered.length){ toast("ยังไม่ได้กรอกข้อมูลสาขาใดเลย", true); return; }
+  // no Door yet → open the Door numpad; its "ไปหน้าสรุป ›" key comes straight back here
+  if(!E.door){ editDoor(true); return; }
+  npClose();
   const notEntered = E.rows.filter(r => !rowEntered(r));
   const deleted = E.rows.filter(r => r.deleted);
   const complete = notEntered.length === 0;
@@ -1397,6 +1594,7 @@ const A = {
   "open-doc": el => { const h = S.docHits[+el.dataset.i]; openEntry(h.doc_no); },
   "open-new": () => { const q = S.docQ.trim().toUpperCase(); if(q.length > 40){ toast("Document No. ยาวเกินไป", true); return; } openEntry(q); },
   "door": () => editDoor(),
+  "cell": el => npSelect(+el.dataset.i, el.dataset.k),
   "filter-clear": () => { S.entry.filter = ""; const i = $("#fStore"); i.value = ""; rerenderRows(); const b = $("[data-act=filter-clear]"); if(b) b.remove(); i.focus(); },
   "comment": el => editComment(+el.dataset.i),
   "del": el => delRow(+el.dataset.i),
@@ -1443,19 +1641,6 @@ document.addEventListener("input", e => {
   const el = e.target, k = el.dataset && el.dataset.in; if(!k) return;
   if(k === "regemail"){ const sf = $("#rEsfx"); if(sf) sf.style.display = el.value.includes("@") ? "none" : ""; return; }
   if(k === "docq"){ S.docQ = el.value; S.docBusy = true; renderDocRes(); docSearch(); return; }
-  if(k === "cell"){
-    let v = el.value.replace(/\D/g, "").replace(/^0+(?=\d)/, "").slice(0,5);
-    if(v !== el.value) el.value = v;
-    const i = +el.dataset.i, r = S.entry.rows[i]; r.vals[el.dataset.k] = v;
-    const b = r.baseline ? r.baseline[el.dataset.k] : null;
-    const box = el.closest(".cellbox") || el;
-    box.classList.toggle("diff", b != null && v !== "" && Number(v) !== b);
-    box.classList.toggle("filled", v !== "" && !(b != null && Number(v) !== b));
-    const bl = box.parentElement && box.parentElement.querySelector(".base");
-    if(bl && b != null) bl.innerHTML = (b > 0 || (v !== "" && Number(v) !== b)) ? `ออก ${b}` : "&nbsp;";
-    const row = $("#row"+i); if(row){ row.classList.toggle("done", rowEntered(r)); row.classList.toggle("extra", !rowEntered(r) && !r.in_plan && !r.baseline); }
-    markDirty(); updateTotals(); return;
-  }
   if(k === "filter"){ S.entry.filter = el.value.trim(); rerenderRows();
     const s = el.closest(".search"), b = $("[data-act=filter-clear]", s);
     if(S.entry.filter && !b){ s.insertAdjacentHTML("beforeend", `<button class="iconbtn" style="width:32px;height:32px" data-act="filter-clear" aria-label="ล้างตัวกรอง">${I.x}</button>`); }
@@ -1475,20 +1660,13 @@ document.addEventListener("change", e => {
     const fd = new FormData(); fd.append("file", f); toast("กำลังนำเข้า…");
     api("/api/admin/plan/upload", {method:"POST", body:fd}).then(r => { toast(`นำเข้าแล้ว ${r.rows} แถว`); S.imp = null; render(); }).catch(err => toast(err.message, true)); }
 });
-// Enter/"next" on the numeric keypad jumps to the next cell
 document.addEventListener("keydown", e => {
   if(e.key !== "Enter") return;
   const el = e.target;
-  if(el.dataset && el.dataset.in === "cell"){
-    e.preventDefault();
-    const cells = $$(".cell"), i = cells.indexOf(el);
-    if(i >= 0 && i < cells.length - 1){ cells[i+1].focus(); cells[i+1].select(); } else el.blur();
-  }
   if(el.id === "docQ"){ e.preventDefault(); const h = S.docHits || [], k = keyOf(S.docQ);
     const exact = h.find(x => keyOf(x.doc_no) === k) || (h.length === 1 ? h[0] : null);
     if(exact) openEntry(exact.doc_no); }
 });
-document.addEventListener("focusin", e => { if(e.target.classList && e.target.classList.contains("cell")) setTimeout(()=>e.target.select(), 0); });
 document.addEventListener("keydown", e => { if(e.key === "Escape" && $("#layer").innerHTML) closeLayer(); });
 
 // ================================================================== boot
