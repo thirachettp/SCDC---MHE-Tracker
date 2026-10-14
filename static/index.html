@@ -199,6 +199,11 @@ select.inp{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns=
 .srow.cur{border:2px solid var(--brand)}
 .doorbtn.sel{border:2.5px solid var(--brand);border-style:solid;background:var(--brand-soft);box-shadow:0 0 0 4px rgba(15,82,87,.15)}
 .doorbtn.sel .k{color:var(--brand)}
+.qrcard{display:flex;gap:14px;align-items:center}
+.qrcard img{width:148px;height:148px;border-radius:10px;border:1px solid var(--line);flex-shrink:0;image-rendering:pixelated;background:#fff}
+.qrcard .qi{display:flex;flex-direction:column;gap:6px;min-width:0}
+.qrcard .qu{font-size:12px;color:var(--brand);word-break:break-all}
+@media (max-width:360px){ .qrcard{flex-direction:column;text-align:center} .qrcard .row{justify-content:center} }
 /* app numpad */
 .tripstrip{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;font-size:13px;width:100%;text-align:left;color:inherit;font:inherit}
 .tripstrip .tn{font-family:var(--mono);font-weight:700}
@@ -528,6 +533,41 @@ const GUIDE = [
    li:["<b>ลืมรหัสผ่าน?</b> แจ้ง Admin ให้รีเซ็ต จะได้รหัสชั่วคราว","<b>เน็ตหลุดระหว่างกรอก?</b> ข้อมูลเก็บไว้ในเครื่อง เปิด Trip เดิมจะกู้คืนให้","<b>สองคนกรอก Trip เดียวกัน?</b> ระบบจะเตือนให้โหลดข้อมูลล่าสุดก่อน",
        "<b>อยากได้ไอคอนบนมือถือ?</b> เปิดเว็บใน Chrome/Safari › “เพิ่มไปยังหน้าจอหลัก”"]},
 ];
+// QR of the app link — for showing a colleague's phone, or printing to stick at the dock
+function appUrl(){ return ((S.meta && S.meta.app_url) || location.origin).replace(/\/+$/, "") + "/"; }
+function qrCard(){
+  const u = appUrl();
+  return `<div class="card qrcard">
+    <img src="/api/qr.svg" width="148" height="148" alt="QR Code เปิดแอป ${esc(u)}">
+    <div class="qi"><div style="font-size:16px;font-weight:700">สแกนเพื่อเปิดแอป</div>
+      <div class="hint" style="line-height:1.45">ให้เพื่อนสแกนด้วยกล้องมือถือ หรือพิมพ์ติดไว้ที่หน้างาน</div>
+      <div class="mono qu">${esc(u.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <button class="btn sm ghost" data-act="qr-share">${navigator.share ? "แชร์ลิงก์" : "คัดลอกลิงก์"}</button>
+        <button class="btn sm ghost" data-act="qr-save">บันทึกรูป QR</button></div></div>
+  </div>`;
+}
+async function qrShare(){
+  const u = appUrl();
+  if(navigator.share){ try{ await navigator.share({title:"Summary Trip MHE", url:u}); }catch(e){} return; }
+  try{ await navigator.clipboard.writeText(u); toast("คัดลอกลิงก์แล้ว"); }
+  catch(e){ prompt("คัดลอกลิงก์นี้", u); }
+}
+// printable PNG: QR + app name + link
+async function qrSave(){
+  try{
+    const img = new Image(); img.src = "/api/qr.svg"; await img.decode();
+    const W = 900, H = 1100, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#16302F"; g.fillRect(0, 0, W, 150);
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.font = "700 54px 'IBM Plex Sans Thai', sans-serif"; g.fillText("Summary Trip MHE", W/2, 98);
+    g.imageSmoothingEnabled = false; g.drawImage(img, 130, 200, 640, 640);
+    g.fillStyle = "#1C1B19"; g.font = "700 44px 'IBM Plex Sans Thai', sans-serif"; g.fillText("สแกนเพื่อเปิดแอป", W/2, 930);
+    g.fillStyle = "#5E5A54"; g.font = "500 30px 'IBM Plex Mono', monospace"; g.fillText(appUrl().replace(/^https?:\/\//, "").replace(/\/$/, ""), W/2, 990);
+    const a = document.createElement("a"); a.href = cv.toDataURL("image/png"); a.download = "SCDC-MHE-QR.png";
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){ toast("สร้างรูป QR ไม่สำเร็จ", true); }
+}
 function vGuide(){
   const i = Math.max(0, Math.min(S.guideStep || 0, GUIDE.length - 1)), g = GUIDE[i], last = i === GUIDE.length - 1;
   return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">วิธีใช้งาน</div><div class="s">${i+1} / ${GUIDE.length}</div></div>
@@ -536,6 +576,7 @@ function vGuide(){
     <div class="guide-art" style="background:${g.bg};color:${g.c}">${I[g.ic]}</div>
     <div style="text-align:center"><div style="font-size:24px;font-weight:700">${g.t}</div>${g.d?`<div style="font-size:15px;color:var(--muted);margin-top:4px">${g.d}</div>`:""}</div>
     <div class="card"><ul>${g.li.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+    ${i === 0 ? qrCard() : ""}
     <div class="guide-dots">${GUIDE.map((_,j)=>`<span class="${j===i?"on":""}"></span>`).join("")}</div>
   </div>
   <div class="foot" style="flex-direction:row">
@@ -1580,6 +1621,8 @@ const A = {
   "guide-next": () => { S.guideStep = (S.guideStep||0) + 1; render(); window.scrollTo(0,0); },
   "guide-prev": () => { S.guideStep = Math.max(0, (S.guideStep||0) - 1); render(); window.scrollTo(0,0); },
   "guide-close": () => closeGuide(),
+  "qr-share": () => qrShare(),
+  "qr-save": () => qrSave(),
   "logout": () => logout(),
   "account": () => accountSheet(),
   "nav": el => { const v = el.dataset.v;

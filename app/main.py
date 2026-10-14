@@ -250,10 +250,30 @@ def logout_all(u=Depends(current_user), c=Depends(db, scope="function")):
 
 
 # ========================================================================= meta
+def _public_url(request: Request) -> str:
+    """The app's own address: APP_PUBLIC_URL if set, otherwise the host the request came in on."""
+    env = (os.environ.get("APP_PUBLIC_URL") or "").strip().rstrip("/")
+    if env:
+        return env
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    return f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
+
+
+@app.get("/api/qr.svg", include_in_schema=False)
+def app_qr(request: Request):
+    """QR code of the app's link (shown in the guide). Public — it only encodes this app's own URL."""
+    import segno
+    buf = io.BytesIO()
+    segno.make(_public_url(request) + "/", error="m").save(buf, kind="svg", scale=8, border=2, dark="#16302F", light="#FFFFFF", xmldecl=False)
+    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="image/svg+xml",
+                             headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/api/meta")
-def meta(c=Depends(db, scope="function")):
+def meta(request: Request, c=Depends(db, scope="function")):
     ccs = c.execute("SELECT code, name FROM cost_centers WHERE active ORDER BY code").fetchall()
-    return {"version": VERSION, "cost_centers": ccs, "email_domain": EMAIL_DOMAIN}
+    return {"version": VERSION, "cost_centers": ccs, "email_domain": EMAIL_DOMAIN, "app_url": _public_url(request)}
 
 
 # ========================================================================= sync
