@@ -207,8 +207,8 @@ class PasswordIn(BaseModel):
 
 
 def _check_password(pw: str):
-    if len(pw) < 8:
-        raise AppError(400, "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร")
+    if not pw:
+        raise AppError(400, "กรุณาใส่รหัสผ่าน")
     if len(pw) > 128:
         raise AppError(400, "รหัสผ่านยาวเกินไป")
 
@@ -723,6 +723,42 @@ def list_records(date_from: str = "", date_to: str = "", q: str = "", status: st
     elif status == "incomplete":
         rows = [r for r in rows if not r["complete"]]
     return {"items": [_rec_out(r) for r in rows], "counts": counts}
+
+
+@app.get("/api/dashboard")
+def dashboard(day: str = "", leg: str = "all", u=Depends(current_user), c=Depends(db, scope="function")):
+    """Receipts of one day (by goods-received time, Bangkok): who received, at which door."""
+    d = _parse_date(day, _bkk_now().date())
+    where = ["(COALESCE(r.received_at, r.created_at) AT TIME ZONE 'Asia/Bangkok')::date = %s"]
+    args = [d]
+    if leg in ("out", "ret"):
+        where.append("r.leg = %s")
+        args.append(leg)
+    rows = c.execute(
+        f"""SELECT r.id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.truck_type, r.transporter, r.door_no,
+                   r.complete, r.entered_stores, r.expected_stores,
+                   COALESCE(r.received_at, r.created_at) AS received_at, r.updated_at,
+                   cu.id AS rcv_id, cu.display_name AS rcv_name, cu.employee_id AS rcv_emp,
+                   cu.cost_center AS rcv_cc, COALESCE(cc.name, '') AS rcv_cc_name,
+                   uu.display_name AS updated_by,
+                   COALESCE(SUM(l.pallet),0)::int pallet, COALESCE(SUM(l.totebox),0)::int totebox,
+                   COALESCE(SUM(l.rollcage),0)::int rollcage, COALESCE(SUM(l.box),0)::int box
+            FROM trip_records r
+            LEFT JOIN record_lines l ON l.record_id = r.id
+            LEFT JOIN users cu ON cu.id = r.created_by
+            LEFT JOIN users uu ON uu.id = r.updated_by
+            LEFT JOIN cost_centers cc ON cc.code = cu.cost_center
+            WHERE {" AND ".join(where)}
+            GROUP BY r.id, cu.id, cc.name, uu.display_name
+            ORDER BY COALESCE(r.received_at, r.created_at) DESC
+            LIMIT 2000""", args).fetchall()
+    items = []
+    for r in rows:
+        x = dict(r)
+        x["received_at"] = r["received_at"].isoformat()
+        x["updated_at"] = r["updated_at"].isoformat()
+        items.append(x)
+    return {"date": d.isoformat(), "items": items, "now": datetime.now(timezone.utc).isoformat()}
 
 
 def _rec_out(r):

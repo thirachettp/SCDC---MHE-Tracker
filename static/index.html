@@ -210,6 +210,35 @@ select.inp{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns=
 .recvrow .inp{height:46px;font-size:16px;padding:0 10px;min-width:0;width:100%}
 .recvrow .btn{height:46px}
 body.np-cell .recvrow{display:none}
+/* dashboard */
+.dkpi{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.dkpi>div{background:var(--dark);color:#fff;border-radius:14px;padding:10px 12px}
+.dkpi .k{font-size:12px;color:#C4D6D3}
+.dkpi .v{font-size:26px;font-weight:700;font-family:var(--mono)}
+.dkpi .v.sm{font-size:15px;display:flex;gap:12px;flex-wrap:wrap}
+.dkpi .wide{grid-column:1/-1}
+.dgrid{display:flex;flex-direction:column;gap:10px}
+.dcard{background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.dh{display:flex;gap:12px;align-items:center}
+.dn{width:62px;height:62px;border-radius:14px;border:2px solid var(--amber);background:#FDF3E7;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}
+.dn span{font-size:10px;font-weight:700;color:var(--warn-ink)}
+.dn b{font-size:24px;line-height:1.1}
+.dn.none{border-style:dashed;background:#fff}
+.dl{display:flex;flex-direction:column}
+.drow{display:flex;gap:10px;align-items:flex-start;text-align:left;background:transparent;border:0;border-top:1px solid #ECE8E1;padding:9px 2px;width:100%;color:inherit;font:inherit}
+.dl .drow:first-child{border-top:0}
+.drow:hover{background:var(--soft2)}
+.drow .tm{font-weight:700;font-size:14px;width:44px;flex-shrink:0;padding-top:1px}
+.drow .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:14px}
+.drow .who{font-weight:600;font-size:13px}
+.qq{font-size:12px;color:var(--ink2);display:flex;gap:10px;flex-wrap:wrap}
+.dbadge{min-width:30px;height:26px;padding:0 6px;border-radius:8px;background:#FDF3E7;border:1.5px solid var(--amber);font-family:var(--mono);font-weight:700;font-size:14px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.dbadge.none{border-style:dashed;background:#fff;color:var(--warn-ink)}
+@media (min-width:1024px){
+  #app.wide .dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));align-items:start}
+  #app.wide .dkpi{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,2fr)}
+  #app.wide .dkpi .wide{grid-column:auto}
+}
 /* app numpad */
 .tripstrip{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;font-size:13px;width:100%;text-align:left;color:inherit;font:inherit}
 .tripstrip .tn{font-family:var(--mono);font-weight:700}
@@ -273,6 +302,9 @@ const QS = {pallet:"P", totebox:"TB", rollcage:"RC", box:"B"};
 
 // ------------------------------------------------------------------ icons
 const I = {
+  dash:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  door:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16 M2 21h20 M15 12h.01"/></svg>',
+  refresh:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7 M20 4v7h-7"/></svg>',
   clock:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   back:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   next:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
@@ -436,7 +468,7 @@ window.addEventListener("beforeunload", e => { if(S.view==="entry" && S.entry &&
 // ------------------------------------------------------------------ chrome
 function isAdmin(){ return S.user && S.user.role === "admin"; }
 function nav(active){
-  const items = [["leg","บันทึก",I.truck],["review","ตรวจสอบ",I.review]];
+  const items = [["leg","บันทึก",I.truck],["dash","Dashboard",I.dash],["review","ตรวจสอบ",I.review]];
   if(isAdmin()) items.push(["recon","Reconcile",I.recon],["import","นำเข้า",I.import],["users","ผู้ใช้",I.users]);
   return `<nav class="nav">${items.map(([v,l,ic]) =>
     `<button data-act="nav" data-v="${v}" class="${active===v?"on":""}" ${active===v?'aria-current="page"':""}>${ic}${l}</button>`).join("")}</nav>`;
@@ -474,11 +506,11 @@ function render(){
   } else if(S.user.must_change_password){
     app.innerHTML = vChangePw(true);
   } else {
-    const views = {leg:vLeg, doc:vDoc, entry:vEntry, review:vReview, detail:vDetail, recon:vRecon, import:vImport, users:vUsers};
+    const views = {leg:vLeg, doc:vDoc, entry:vEntry, dash:vDash, review:vReview, detail:vDetail, recon:vRecon, import:vImport, users:vUsers};
     if(!isAdmin() && ["recon","import","users"].includes(S.view)) S.view = "leg";
     app.innerHTML = (views[S.view] || vLeg)();
   }
-  app.classList.toggle("wide", !!S.user && ["recon","review","import","users"].includes(S.view));
+  app.classList.toggle("wide", !!S.user && ["recon","review","import","users","dash"].includes(S.view));
   after();
 }
 function after(){
@@ -537,7 +569,7 @@ function vRegister(){
     <div class="field"><label class="lbl" for="rId">รหัสพนักงาน</label><input id="rId" name="employee_id" class="inp" maxlength="20" autocapitalize="characters" spellcheck="false" placeholder="เช่น 12345" required>
       <div class="hint" style="margin-top:4px">ใช้เป็นชื่อผู้ใช้ตอนเข้าสู่ระบบ</div></div>
     ${ccPicker(ccs, "")}
-    <div class="field"><label class="lbl" for="rP">รหัสผ่าน</label><input id="rP" name="password" type="password" class="inp" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร" required></div>
+    <div class="field"><label class="lbl" for="rP">รหัสผ่าน</label><input id="rP" name="password" type="password" class="inp" autocomplete="new-password" required></div>
     <div class="field"><label class="lbl" for="rP2">ยืนยันรหัสผ่าน</label><input id="rP2" name="password2" type="password" class="inp" autocomplete="new-password" required></div>
     <div class="banner info">${I.info}<div>บัญชีใหม่จะได้สิทธิ์ <b>User</b> ใช้เมนูบันทึกและตรวจสอบได้ทันที Admin สามารถปรับสิทธิ์ภายหลัง</div></div>
     <button class="btn primary" type="submit" style="height:54px;font-size:17px">สมัครใช้งาน</button>
@@ -562,7 +594,7 @@ const GUIDE = [
   {c:"var(--ok-ink)", bg:"var(--ok-bg)", ic:"check", t:"④ ตรวจสรุป แล้วยืนยัน", d:"ระบบสรุปให้ดูก่อนทุกครั้ง",
    li:["ดูจำนวนรวม สาขาที่ยังไม่กรอก และสาขาที่ไม่เท่าขาออก","กด <b>ยืนยันบันทึก</b> — ยังไม่ครบก็บันทึกได้ กลับมากรอกต่อได้","บันทึก Trip เดิมซ้ำ = แก้ไข ระบบเก็บประวัติว่าใครแก้อะไร"]},
   {c:"var(--ink2)", bg:"var(--soft)", ic:"info", t:"คำถามที่พบบ่อย", d:"",
-   li:["<b>ลืมรหัสผ่าน?</b> แจ้ง Admin ให้รีเซ็ต จะได้รหัสชั่วคราว","<b>เน็ตหลุดระหว่างกรอก?</b> ข้อมูลเก็บไว้ในเครื่อง เปิด Trip เดิมจะกู้คืนให้","<b>สองคนกรอก Trip เดียวกัน?</b> ระบบจะเตือนให้โหลดข้อมูลล่าสุดก่อน",
+   li:["<b>ใครรับสินค้า / รถเข้าประตูไหน?</b> ดูที่เมนู <b>Dashboard</b> — แยกตามประตู ตามผู้รับ หรือตามเวลา","<b>ลืมรหัสผ่าน?</b> แจ้ง Admin ให้รีเซ็ต จะได้รหัสชั่วคราว","<b>เน็ตหลุดระหว่างกรอก?</b> ข้อมูลเก็บไว้ในเครื่อง เปิด Trip เดิมจะกู้คืนให้","<b>สองคนกรอก Trip เดียวกัน?</b> ระบบจะเตือนให้โหลดข้อมูลล่าสุดก่อน",
        "<b>อยากได้ไอคอนบนมือถือ?</b> เปิดเว็บใน Chrome/Safari › “เพิ่มไปยังหน้าจอหลัก”"]},
 ];
 // QR of the app link — for showing a colleague's phone, or printing to stick at the dock
@@ -622,7 +654,7 @@ function vChangePw(forced){
   return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">ตั้งรหัสผ่านใหม่</div><div class="ver">${VERSION}</div></div></header>
   <form class="main" style="padding:24px;gap:14px" data-form="changepw" novalidate>
     ${forced?`<div class="banner warn">${I.warn}<div>รหัสผ่านนี้เป็นรหัสชั่วคราว กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน</div></div>`:""}
-    <div class="field"><label class="lbl" for="cP">รหัสผ่านใหม่</label><input id="cP" name="new" type="password" class="inp" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร"></div>
+    <div class="field"><label class="lbl" for="cP">รหัสผ่านใหม่</label><input id="cP" name="new" type="password" class="inp" autocomplete="new-password"></div>
     <div class="field"><label class="lbl" for="cP2">ยืนยันรหัสผ่านใหม่</label><input id="cP2" name="new2" type="password" class="inp" autocomplete="new-password"></div>
     <button class="btn primary" type="submit">บันทึกรหัสผ่าน</button>
     <button class="btn ghost" type="button" data-act="logout">ออกจากระบบ</button>
@@ -1185,6 +1217,96 @@ async function loadReview(){
 const rcSearch = debounce(() => { if(S.view !== "recon") return; const pos = ($("#rcQ")||{}).selectionStart; S.recon.limit = 100; render(); const i = $("#rcQ"); if(i){ i.focus(); try{ i.setSelectionRange(pos,pos); }catch(e){} } }, 250);
 const revSearch = debounce(() => { S.review.items = null; loadReview(); }, 300);
 
+// ================================================================== dashboard
+// For the LP team: who received goods today, and at which door.
+function dashDefaults(){ return {date:bkkDate(), leg:"ret", tab:"door", q:"", items:null, at:null}; }
+function hm(iso){ return bkkLocal(new Date(iso)).slice(11); }
+function sumQ(list){ const t = {pallet:0,totebox:0,rollcage:0,box:0}; list.forEach(r => QK.forEach(k => t[k] += r[k]||0)); return t; }
+function qtyLine(t){ return `<span>P ${t.pallet}</span><span>TB ${t.totebox}</span><span>RC ${t.rollcage}</span><span>B ${t.box}</span>`; }
+function vDash(){
+  const D = S.dash || (S.dash = dashDefaults());
+  const today = bkkDate(), yest = addDays(today,-1);
+  if(D.items === null) loadDash();
+  const ql = D.q.trim().toLowerCase();
+  const items = (D.items||[]).filter(r => !ql || [r.trip_no, r.doc_no, r.truck_id, r.rcv_name, r.rcv_emp, r.transporter, r.door_no!=null?`d${r.door_no}`:""]
+                  .concat(r.door_no!=null?[String(r.door_no)]:[]).some(x => (x||"").toLowerCase().includes(ql)));
+  // group by door / by receiver
+  const doors = new Map(), people = new Map();
+  items.forEach(r => {
+    const dk = r.door_no ?? "-"; if(!doors.has(dk)) doors.set(dk, []); doors.get(dk).push(r);
+    const pk = r.rcv_id ?? 0; if(!people.has(pk)) people.set(pk, []); people.get(pk).push(r);
+  });
+  const tot = sumQ(items);
+  const kpi = `<div class="dkpi">
+    <div><div class="k">Trip ที่รับ</div><div class="v">${items.length}</div></div>
+    <div><div class="k">ผู้รับสินค้า</div><div class="v">${people.size}</div></div>
+    <div><div class="k">ประตูที่ใช้</div><div class="v">${[...doors.keys()].filter(k=>k!=="-").length}</div></div>
+    <div class="wide"><div class="k">รวม MHE</div><div class="v sm mono">${qtyLine(tot)}</div></div></div>`;
+  const tripRow = (r, show) => `<button class="drow" data-act="open-rec" data-id="${r.id}">
+      <span class="tm mono">${hm(r.received_at)}</span>
+      ${show.door ? `<span class="dbadge ${r.door_no==null?"none":""}">${r.door_no ?? "?"}</span>` : ""}
+      <span class="tx"><b class="mono">${esc(r.trip_no || r.doc_no)}</b> <span class="hint">${esc(r.truck_id||"")}${r.truck_type?` · ${esc(r.truck_type)}`:""}${r.transporter?` · ${esc(r.transporter)}`:""}</span>
+        ${show.who ? `<span class="who">${esc(r.rcv_name||"-")}${r.rcv_emp?` <span class="hint mono">#${esc(r.rcv_emp)}</span>`:""}</span>` : ""}
+        <span class="qq mono">${qtyLine(r)}${D.leg==="all"?` · ${r.leg==="ret"?"ขากลับ":"ขาออก"}`:""}${!r.complete?` · <span style="color:var(--warn-ink)">ยังไม่ครบ ${r.entered_stores}/${r.expected_stores}</span>`:""}</span></span></button>`;
+  let body;
+  if(D.items === null) body = `<div class="spin"></div>`;
+  else if(!items.length) body = `<div class="empty">${D.items.length ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีการรับสินค้าในวันที่เลือก"}</div>`;
+  else if(D.tab === "door"){
+    const keys = [...doors.keys()].sort((a,b) => (a==="-") - (b==="-") || a - b);
+    body = `<div class="dgrid">${keys.map(k => { const L = doors.get(k), rc = new Set(L.map(r=>r.rcv_name)).size;
+      return `<div class="dcard"><div class="dh"><div class="dn ${k==="-"?"none":""}"><span>DOOR</span><b class="mono">${k==="-"?"?":k}</b></div>
+        <div style="flex:1;min-width:0"><div style="font-weight:700">${L.length} Trip · ${rc} คนรับ</div>
+        <div class="hint">ล่าสุด ${hm(L[0].received_at)} · ${esc(L[0].rcv_name||"-")}</div><div class="hint mono qq">${qtyLine(sumQ(L))}</div></div></div>
+        <div class="dl">${L.map(r => tripRow(r, {who:true})).join("")}</div></div>`; }).join("")}</div>`;
+  } else if(D.tab === "who"){
+    const keys = [...people.keys()].sort((a,b) => people.get(b).length - people.get(a).length);
+    body = `<div class="dgrid">${keys.map(k => { const L = people.get(k), r0 = L[0];
+      const ds = [...new Set(L.map(r => r.door_no).filter(x => x!=null))].sort((a,b)=>a-b);
+      return `<div class="dcard"><div class="dh"><div class="avatar" style="width:44px;height:44px;border-radius:22px;background:var(--brand)">${esc(initials(r0.rcv_name))}</div>
+        <div style="flex:1;min-width:0"><div style="font-weight:700">${esc(r0.rcv_name||"-")} ${r0.rcv_emp?`<span class="hint mono">#${esc(r0.rcv_emp)}</span>`:""}</div>
+        <div class="hint">${r0.rcv_cc?esc(ccLabel(r0.rcv_cc, r0.rcv_cc_name))+" · ":""}${L.length} Trip · ${hm(L[L.length-1].received_at)}–${hm(L[0].received_at)}</div>
+        <div class="row" style="gap:4px;flex-wrap:wrap;margin-top:4px">${ds.map(d=>`<span class="dbadge">${d}</span>`).join("")}</div></div></div>
+        <div class="hint mono qq" style="padding:0 2px">${qtyLine(sumQ(L))}</div>
+        <div class="dl">${L.map(r => tripRow(r, {door:true})).join("")}</div></div>`; }).join("")}</div>`;
+  } else {
+    body = `<div class="dcard"><div class="dl">${items.map(r => tripRow(r, {door:true, who:true})).join("")}</div></div>`;
+  }
+  return `${hdrMain("Dashboard")}
+  <div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid var(--line)">
+    <div class="chips">
+      <button class="chip ${D.date===today?"on":""}" data-act="dash-date" data-d="${today}">วันนี้ ${fmtD(today).slice(0,5)}</button>
+      <button class="chip ${D.date===yest?"on":""}" data-act="dash-date" data-d="${yest}">เมื่อวาน</button>
+      <label class="chip ${D.date!==today&&D.date!==yest?"on":""}" style="position:relative">${D.date!==today&&D.date!==yest?fmtD(D.date):"เลือกวันที่"}
+        <input type="date" value="${D.date}" max="${today}" data-in="dashdate" style="position:absolute;inset:0;opacity:0;width:100%" aria-label="เลือกวันที่"></label>
+      <button class="chip" data-act="dash-refresh" style="margin-left:auto" aria-label="รีเฟรช">${I.refresh}${D.at?` ${hm(D.at)}`:""}</button>
+    </div>
+    <div class="seg">${[["ret","ขากลับเข้าคลัง"],["out","ขาออก"],["all","ทุกขา"]].map(([v,l])=>`<button class="${D.leg===v?"on":""}" data-act="dash-leg" data-v="${v}">${l}</button>`).join("")}</div>
+  </div>
+  <div class="main" style="gap:12px">
+    ${kpi}
+    <div class="seg">${[["door","ตามประตู"],["who","ตามผู้รับ"],["time","ตามเวลา"]].map(([v,l])=>`<button class="${D.tab===v?"on":""}" data-act="dash-tab" data-v="${v}">${l}</button>`).join("")}</div>
+    <div class="search">${I.search}<input id="dashQ" value="${esc(D.q)}" placeholder="ค้นหา ชื่อผู้รับ, Trip, ทะเบียนรถ, ประตู" data-in="dashq" autocomplete="off"></div>
+    ${body}
+  </div>${nav("dash")}`;
+}
+async function loadDash(){
+  const D = S.dash, key = `${D.date}|${D.leg}`;
+  try{ const r = await api(`/api/dashboard?day=${D.date}&leg=${D.leg}`); if(`${S.dash.date}|${S.dash.leg}` !== key) return; D.items = r.items; D.at = r.now; }
+  catch(e){ D.items = []; toast(e.message, true); }
+  if(S.view === "dash") dashRender();
+}
+// re-render keeping the search box focus/caret
+function dashRender(){
+  const a = document.activeElement, f = a && a.id === "dashQ", pos = f ? a.selectionStart : 0, y = scrollY;
+  render(); window.scrollTo(0, y);
+  if(f){ const i = $("#dashQ"); i.focus(); try{ i.setSelectionRange(pos,pos); }catch(e){} }
+}
+const dashSearch = debounce(() => { if(S.view === "dash") dashRender(); }, 200);
+// keep today's board fresh for the dock screen
+setInterval(() => {
+  if(S.view === "dash" && S.dash && S.dash.date === bkkDate() && !$("#layer").innerHTML && document.visibilityState === "visible") loadDash();
+}, 60000);
+
 // ================================================================== detail
 function vDetail(){
   const D = S.detail;
@@ -1608,7 +1730,7 @@ function accountSheet(){
   $("[data-a=pw]", ov).onclick = async () => {
     closeLayer();
     const cur = await ask({title:"รหัสผ่านปัจจุบัน", input:{type:"password", max:128}, ok:"ถัดไป"}); if(cur === null) return;
-    const nw = await ask({title:"รหัสผ่านใหม่", body:"อย่างน้อย 8 ตัวอักษร", input:{type:"password", max:128}, ok:"บันทึก"}); if(nw === null) return;
+    const nw = await ask({title:"รหัสผ่านใหม่", input:{type:"password", max:128}, ok:"บันทึก"}); if(nw === null) return;
     try{ const r = await api("/api/me/password", {method:"POST", body:{current:cur, new:nw}}); setSession(r); toast("เปลี่ยนรหัสผ่านแล้ว"); }
     catch(e){ toast(e.message, true); }
   };
@@ -1627,7 +1749,7 @@ async function myCcSheet(){
 function setSession(r){ S.token = r.token; S.user = r.user; lsSet("mhe_token", r.token); }
 function logout(expired){
   S.token = null; S.user = null; lsDel("mhe_token");
-  S.entry = S.review = S.detail = S.recon = null; S.imp = null; S.users = null; S.ccs = null; S.usersTab = "users";
+  S.entry = S.review = S.detail = S.recon = S.dash = null; S.imp = null; S.users = null; S.ccs = null; S.usersTab = "users";
   closeLayer(); S.view = "login"; history.replaceState({view:"login"}, "", "#"); render();
   if(expired) toast("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", true);
 }
@@ -1652,7 +1774,7 @@ document.addEventListener("submit", async e => {
       if(!fd.display_name.trim()) throw new Error("กรุณากรอกชื่อที่แสดง");
       if(!/^[A-Za-z0-9-]{3,20}$/.test((fd.employee_id||"").trim())) throw new Error("รหัสพนักงานใช้ตัวอักษร/ตัวเลข 3–20 ตัว");
       const cc = ccFromForm(fd);
-      if(fd.password.length < 8) throw new Error("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
+      if(!fd.password) throw new Error("กรุณาใส่รหัสผ่าน");
       if(fd.password !== fd.password2) throw new Error("ยืนยันรหัสผ่านไม่ตรงกัน");
       setSession(await api("/api/auth/register", {method:"POST", body:{display_name:fd.display_name, employee_id:fd.employee_id.trim(), ...cc, password:fd.password}, noLogout:true}));
       toast("สมัครใช้งานเรียบร้อย"); afterLogin(); return;
@@ -1662,7 +1784,7 @@ document.addEventListener("submit", async e => {
       S.user = r.user; closeLayer(); toast("บันทึก Cost Center แล้ว"); render(); return;
     }
     if(f.dataset.form === "changepw"){
-      if(fd.new.length < 8) throw new Error("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
+      if(!fd.new) throw new Error("กรุณาใส่รหัสผ่านใหม่");
       if(fd.new !== fd.new2) throw new Error("ยืนยันรหัสผ่านไม่ตรงกัน");
       setSession(await api("/api/me/password", {method:"POST", body:{new:fd.new}}));
       toast("ตั้งรหัสผ่านใหม่แล้ว"); afterLogin(); return;
@@ -1706,6 +1828,10 @@ const A = {
   "to-confirm": () => confirmSheet(),
   "open-rec": el => openDetail(+el.dataset.id),
   "edit-rec": () => { const r = S.detail.record; S.leg = r.leg; openEntry(r.doc_no); },
+  "dash-date": el => { S.dash.date = el.dataset.d; S.dash.items = null; render(); },
+  "dash-leg": el => { S.dash.leg = el.dataset.v; S.dash.items = null; render(); },
+  "dash-tab": el => { S.dash.tab = el.dataset.v; render(); },
+  "dash-refresh": () => { S.dash.items = null; render(); },
   "rev-date": el => { S.review.date = el.dataset.d; S.review.items = null; render(); },
   "rev-leg": el => { S.review.leg = el.dataset.v; S.review.items = null; render(); },
   "rev-status": el => { S.review.status = el.dataset.v; S.review.items = null; render(); },
@@ -1749,12 +1875,14 @@ document.addEventListener("input", e => {
     const s = el.closest(".search"), b = $("[data-act=filter-clear]", s);
     if(S.entry.filter && !b){ s.insertAdjacentHTML("beforeend", `<button class="iconbtn" style="width:32px;height:32px" data-act="filter-clear" aria-label="ล้างตัวกรอง">${I.x}</button>`); }
     if(!S.entry.filter && b) b.remove(); return; }
+  if(k === "dashq"){ S.dash.q = el.value; dashSearch(); return; }
   if(k === "rcq"){ S.recon.q = el.value; rcSearch(); return; }
   if(k === "revq"){ S.review.q = el.value; revSearch(); return; }
   if(k === "usq"){ S.users.q = el.value; const pos = el.selectionStart; render(); const i = $("#usQ"); i.focus(); i.setSelectionRange(pos,pos); return; }
 });
 document.addEventListener("change", e => {
   const el = e.target, k = el.dataset && el.dataset.in; if(!k) return;
+  if(k === "dashdate" && el.value){ S.dash.date = el.value; S.dash.items = null; render(); }
   if(k === "revdate" && el.value){ S.review.date = el.value; S.review.items = null; render(); }
   if(k === "rc-from" && el.value){ S.recon.from = el.value; rcReload(); }
   if(k === "rc-to" && el.value){ S.recon.to = el.value; rcReload(); }
