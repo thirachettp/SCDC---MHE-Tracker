@@ -103,7 +103,9 @@ def _user_out(u, c):
     return {"id": u["id"], "email": u["email"] or "", "display_name": u["display_name"],
             "employee_id": u.get("employee_id", ""),
             "cost_center": u["cost_center"], "cost_center_name": _cc_name(c, u["cost_center"]),
-            "role": u["role"], "active": u["active"], "must_change_password": u["must_change_password"]}
+            "role": u["role"], "active": u["active"], "must_change_password": u["must_change_password"],
+            "requested_role": u.get("requested_role"),
+            "role_requested_at": u["role_requested_at"].isoformat() if u.get("role_requested_at") else None}
 
 
 def _valid_cc(c, code, *, required):
@@ -156,10 +158,35 @@ def current_user(authorization: str = Header(default=""), c=Depends(db, scope="f
     return u
 
 
+# Roles: user = signed up, waiting for a role · lp = record + view all (edit own only)
+#        lp_dm = everything except Reconcile/Import, edits all records, manages users · admin = all
+ROLES = ("user", "lp", "lp_dm", "admin")
+ROLE_LABEL = {"user": "รอสิทธิ์", "lp": "LP", "lp_dm": "LP DM", "admin": "Admin"}
+RANK = {r: i for i, r in enumerate(ROLES)}
+
+
 def admin_user(u=Depends(current_user)):
     if u["role"] != "admin":
         raise AppError(403, "เฉพาะ Admin")
     return u
+
+
+def staff_user(u=Depends(current_user)):
+    """LP and up: record, review, dashboard."""
+    if RANK.get(u["role"], 0) < RANK["lp"]:
+        raise AppError(403, "บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน — กดขอสิทธิ์ แล้วรอ LP DM / Admin อนุมัติ")
+    return u
+
+
+def manager_user(u=Depends(current_user)):
+    """LP DM and Admin: user management, edit everyone's records."""
+    if RANK.get(u["role"], 0) < RANK["lp_dm"]:
+        raise AppError(403, "เฉพาะ LP DM หรือ Admin")
+    return u
+
+
+def can_edit_record(u, created_by) -> bool:
+    return RANK.get(u["role"], 0) >= RANK["lp_dm"] or (u["role"] == "lp" and created_by in (None, u["id"]))
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -329,6 +356,26 @@ def my_cost_center(body: MyCostCenterIn, u=Depends(current_user), c=Depends(db, 
     return {"user": _user_out(r, c)}
 
 
+class RoleRequestIn(BaseModel):
+    role: str = Field(pattern="^(lp|lp_dm)$")
+
+
+@app.post("/api/me/role-request")
+def request_role(body: RoleRequestIn, u=Depends(current_user), c=Depends(db, scope="function")):
+    if RANK.get(u["role"], 0) >= RANK[body.role]:
+        raise AppError(400, f"คุณมีสิทธิ์ {ROLE_LABEL[u['role']]} อยู่แล้ว")
+    r = c.execute("UPDATE users SET requested_role = %s, role_requested_at = now() WHERE id = %s RETURNING *",
+                  (body.role, u["id"])).fetchone()
+    return {"user": _user_out(r, c)}
+
+
+@app.delete("/api/me/role-request")
+def cancel_role_request(u=Depends(current_user), c=Depends(db, scope="function")):
+    r = c.execute("UPDATE users SET requested_role = NULL, role_requested_at = NULL WHERE id = %s RETURNING *",
+                  (u["id"],)).fetchone()
+    return {"user": _user_out(r, c)}
+
+
 @app.post("/api/me/logout-all")
 def logout_all(u=Depends(current_user), c=Depends(db, scope="function")):
     c.execute("UPDATE users SET token_version = token_version + 1 WHERE id = %s", (u["id"],))
@@ -364,7 +411,7 @@ def meta(request: Request, c=Depends(db, scope="function")):
 
 # ========================================================================= sync
 @app.post("/api/sync/auto")
-def sync_auto(u=Depends(current_user)):
+def sync_auto(u=Depends(staff_user)):
     if gas.configured():            # Apps Script pushes on its own schedule
         return {"ran": False, "reason": "push_mode"}
     return drive.sync(conn, force=False)
@@ -386,7 +433,7 @@ def _bkk_now():
 
 
 @app.get("/api/docs/search")
-def doc_search(q: str = "", u=Depends(current_user), c=Depends(db, scope="function")):
+def doc_search(q: str = "", u=Depends(staff_user), c=Depends(db, scope="function")):
     raw = q.strip().upper().replace(" ", "")
     if not raw:
         return {"items": []}
@@ -464,7 +511,7 @@ def _qty(l):
 
 @app.get("/api/docs/{doc}")
 def doc_detail(doc: str, leg: str = Query(..., pattern="^(out|ret)$"),
-               u=Depends(current_user), c=Depends(db, scope="function")):
+               u=Depends(staff_user), c=Depends(db, scope="function")):
     doc = doc.strip()
     key = parsing.doc_key(doc)
     if not key:
@@ -513,6 +560,7 @@ def doc_detail(doc: str, leg: str = Query(..., pattern="^(out|ret)$"),
         "leg": leg,
         "record": None if not rec else {
             "id": rec["id"], "door_no": rec["door_no"], "complete": rec["complete"],
+            "can_edit": can_edit_record(u, rec["created_by"]),
             "received_at": rec["received_at"].isoformat() if rec.get("received_at") else None,
             "updated_at": rec["updated_at"].isoformat(), "updated_by": rec["updated_by_name"],
             "created_by": rec["created_by_name"],
@@ -523,7 +571,7 @@ def doc_detail(doc: str, leg: str = Query(..., pattern="^(out|ret)$"),
 
 
 @app.get("/api/stores")
-def store_search(q: str = "", u=Depends(current_user), c=Depends(db, scope="function")):
+def store_search(q: str = "", u=Depends(staff_user), c=Depends(db, scope="function")):
     q = q.strip()
     if not q:
         return {"items": []}
@@ -580,7 +628,7 @@ def _clean_line(l: LineIn):
 
 
 @app.post("/api/records")
-def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="function")):
+def save_record(body: RecordIn, u=Depends(staff_user), c=Depends(db, scope="function")):
     doc = body.doc_no.strip()
     key = parsing.doc_key(doc)
     if not key or len(doc) > 40:
@@ -619,6 +667,10 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
         who = c.execute("SELECT display_name FROM users WHERE id = %s", (old["updated_by"],)).fetchone()
         raise AppError(409, f"Trip นี้เพิ่งถูกแก้ไขโดย {who['display_name'] if who else 'ผู้อื่น'} "
                             "กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก")
+    if old and not can_edit_record(u, old["created_by"]):
+        who = c.execute("SELECT display_name FROM users WHERE id = %s", (old["created_by"],)).fetchone()
+        raise AppError(403, f"Trip นี้บันทึกโดย {who['display_name'] if who else 'ผู้อื่น'} — LP แก้ไขได้เฉพาะของตัวเอง "
+                            "(ให้ LP DM แก้ไขให้)")
     if not old and body.base_updated_at:
         raise AppError(409, "ข้อมูลนี้ถูกลบหรือเปลี่ยนแปลง กรุณาโหลดใหม่")
 
@@ -749,7 +801,7 @@ def _parse_date(s, default):
 
 
 LIST_SQL = """
-SELECT r.id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.truck_type, r.transporter, r.door_no, r.complete, r.in_plan, r.received_at,
+SELECT r.id, r.created_by AS created_by_id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.truck_type, r.transporter, r.door_no, r.complete, r.in_plan, r.received_at,
        r.expected_stores, r.entered_stores, r.created_at, r.updated_at,
        cu.display_name AS created_by, uu.display_name AS updated_by,
        COALESCE(SUM(l.pallet),0)::int pallet, COALESCE(SUM(l.totebox),0)::int totebox,
@@ -765,7 +817,7 @@ ORDER BY r.updated_at DESC
 
 @app.get("/api/records")
 def list_records(date_from: str = "", date_to: str = "", q: str = "", status: str = "all",
-                 leg: str = "all", u=Depends(current_user), c=Depends(db, scope="function")):
+                 leg: str = "all", u=Depends(staff_user), c=Depends(db, scope="function")):
     today = _bkk_now().date()
     df, dt = _parse_date(date_from, today), _parse_date(date_to, today)
     where, args = _list_filters(df, dt, q, "all", leg)
@@ -780,9 +832,89 @@ def list_records(date_from: str = "", date_to: str = "", q: str = "", status: st
 
 
 @app.get("/api/dashboard")
-def dashboard(day: str = "", leg: str = "all", u=Depends(current_user), c=Depends(db, scope="function")):
+def dashboard(day: str = "", leg: str = "all", u=Depends(staff_user), c=Depends(db, scope="function")):
     """Receipts of one day (by goods-received time, Bangkok): who received, at which door."""
     d = _parse_date(day, _bkk_now().date())
+    rows = _dash_rows(c, d, leg)
+    items = []
+    for r in rows:
+        x = dict(r)
+        x["received_at"] = r["received_at"].isoformat()
+        x["updated_at"] = r["updated_at"].isoformat()
+        items.append(x)
+    return {"date": d.isoformat(), "items": items, "now": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/dashboard/export")
+def dashboard_export(day: str = "", leg: str = "all", u=Depends(staff_user), c=Depends(db, scope="function")):
+    """Excel of the Dashboard day: trips, store lines, per door, per receiver."""
+    import openpyxl
+    from openpyxl.styles import Font
+    d = _parse_date(day, _bkk_now().date())
+    rows = _dash_rows(c, d, leg)
+    leg_th = lambda x: "ขากลับ" if x == "ret" else "ขาออก"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "รายการรับสินค้า"
+    ws.append(["วันเวลารับสินค้า", "Door", "ขา", "Trip No.", "Document No.", "ทะเบียนรถ", "ประเภทรถ", "Transporter",
+               "ผู้รับ", "รหัสพนักงาน", "Cost Center", "Pallet", "Totebox", "Rollcage", "Box",
+               "สถานะ", "สาขาที่กรอก", "สาขาทั้งหมด", "แก้ไขล่าสุดโดย"])
+    for r in rows:
+        ws.append([_xl_dt(r["received_at"]), r["door_no"], leg_th(r["leg"]), r["trip_no"], r["doc_no"], r["truck_id"],
+                   r["truck_type"], r["transporter"], r["rcv_name"], r["rcv_emp"],
+                   ccl(r["rcv_cc"], r["rcv_cc_name"]), r["pallet"], r["totebox"], r["rollcage"], r["box"],
+                   "ครบ" if r["complete"] else "ยังไม่ครบ", r["entered_stores"], r["expected_stores"], r["updated_by"]])
+    # store-level lines
+    ws2 = wb.create_sheet("รายละเอียดสาขา")
+    ws2.append(["วันเวลารับสินค้า", "Door", "ขา", "Trip No.", "Document No.", "ผู้รับ", "Store Code", "Store Name",
+                "ในแผน", "ลบ (=0)", "Pallet", "Totebox", "Rollcage", "Box", "Comment"])
+    ids = [r["id"] for r in rows]
+    if ids:
+        by_id = {r["id"]: r for r in rows}
+        for l in c.execute("SELECT * FROM record_lines WHERE record_id = ANY(%s) ORDER BY record_id, sort_order, id",
+                           (ids,)).fetchall():
+            r = by_id[l["record_id"]]
+            ws2.append([_xl_dt(r["received_at"]), r["door_no"], leg_th(r["leg"]), r["trip_no"], r["doc_no"], r["rcv_name"],
+                        l["store_code"], l["store_name"], "Y" if l["in_plan"] else "N", "Y" if l["deleted"] else "",
+                        l["pallet"], l["totebox"], l["rollcage"], l["box"], l["comment"]])
+
+    def summary(title, keyf, head):
+        g = {}
+        for r in rows:
+            g.setdefault(keyf(r), []).append(r)
+        w = wb.create_sheet(title)
+        w.append(head + ["จำนวน Trip", "เวลาแรก", "เวลาล่าสุด", "Pallet", "Totebox", "Rollcage", "Box"])
+        return g, w
+    g, w = summary("ตามประตู", lambda r: r["door_no"], ["Door", "ผู้รับ"])
+    for k in sorted(g, key=lambda x: (x is None, x or 0)):
+        L = g[k]
+        w.append([k if k is not None else "-", ", ".join(sorted({r["rcv_name"] or "-" for r in L})), len(L),
+                  _xl_dt(min(r["received_at"] for r in L)), _xl_dt(max(r["received_at"] for r in L))]
+                 + [sum(r[q] for r in L) for q in QTY])
+    g, w = summary("ตามผู้รับ", lambda r: r["rcv_id"], ["ผู้รับ", "รหัสพนักงาน", "Cost Center", "Door ที่ใช้"])
+    for k in sorted(g, key=lambda x: -len(g[x])):
+        L = g[k]
+        doors = sorted({r["door_no"] for r in L if r["door_no"] is not None})
+        w.append([L[0]["rcv_name"], L[0]["rcv_emp"], ccl(L[0]["rcv_cc"], L[0]["rcv_cc_name"]),
+                  ", ".join(map(str, doors)), len(L),
+                  _xl_dt(min(r["received_at"] for r in L)), _xl_dt(max(r["received_at"] for r in L))]
+                 + [sum(r[q] for r in L) for q in QTY])
+    for wsx in wb.worksheets:
+        for cell in wsx[1]:
+            cell.font = Font(bold=True)
+        for row in wsx.iter_rows(min_row=2):
+            for cell in row:
+                if isinstance(cell.value, datetime):
+                    cell.number_format = "dd/mm/yyyy hh:mm"
+    tag = {"ret": "ret", "out": "out"}.get(leg, "all")
+    return _xlsx(wb, f"Dashboard_{d:%Y%m%d}_{tag}.xlsx")
+
+
+def ccl(code, name):
+    return f"{code} · {name}" if code and name else (code or "")
+
+
+def _dash_rows(c, d, leg):
     where = ["(COALESCE(r.received_at, r.created_at) AT TIME ZONE 'Asia/Bangkok')::date = %s"]
     args = [d]
     if leg in ("out", "ret"):
@@ -806,13 +938,7 @@ def dashboard(day: str = "", leg: str = "all", u=Depends(current_user), c=Depend
             GROUP BY r.id, cu.id, cc.name, uu.display_name
             ORDER BY COALESCE(r.received_at, r.created_at) DESC
             LIMIT 2000""", args).fetchall()
-    items = []
-    for r in rows:
-        x = dict(r)
-        x["received_at"] = r["received_at"].isoformat()
-        x["updated_at"] = r["updated_at"].isoformat()
-        items.append(x)
-    return {"date": d.isoformat(), "items": items, "now": datetime.now(timezone.utc).isoformat()}
+    return rows
 
 
 def _rec_out(r):
@@ -825,7 +951,7 @@ def _rec_out(r):
 
 @app.get("/api/records/export")
 def export_records(date_from: str = "", date_to: str = "", q: str = "", status: str = "all",
-                   leg: str = "all", u=Depends(current_user), c=Depends(db, scope="function")):
+                   leg: str = "all", u=Depends(staff_user), c=Depends(db, scope="function")):
     import openpyxl
     today = _bkk_now().date()
     df, dt = _parse_date(date_from, today), _parse_date(date_to, today)
@@ -879,7 +1005,7 @@ def _content_disposition(name):
 
 
 @app.get("/api/records/{rid}")
-def record_detail(rid: int, u=Depends(current_user), c=Depends(db, scope="function")):
+def record_detail(rid: int, u=Depends(staff_user), c=Depends(db, scope="function")):
     r = c.execute(LIST_SQL.format(where="r.id = %s"), (rid,)).fetchone()
     if not r:
         raise AppError(404, "ไม่พบข้อมูล")
@@ -890,7 +1016,7 @@ def record_detail(rid: int, u=Depends(current_user), c=Depends(db, scope="functi
            LEFT JOIN users u ON u.id = h.user_id WHERE h.record_id = %s ORDER BY h.at DESC, h.id DESC""",
         (rid,)).fetchall()
     return {
-        "record": _rec_out(r),
+        "record": {**_rec_out(r), "can_edit": can_edit_record(u, r["created_by_id"])},
         "lines": [{k: l[k] for k in ("store_code", "store_name", "in_plan", "deleted", "pallet",
                                      "totebox", "rollcage", "box", "comment")} for l in lines],
         "history": [{"at": h["at"].isoformat(), "action": h["action"], "changes": h["changes"],
@@ -1021,7 +1147,7 @@ async def plan_upload(file: UploadFile = File(...), u=Depends(admin_user)):
 
 
 class UserPatch(BaseModel):
-    role: Optional[str] = Field(default=None, pattern="^(user|admin)$")
+    role: Optional[str] = Field(default=None, pattern="^(user|lp|lp_dm|admin)$")
     active: Optional[bool] = None
     cost_center: Optional[str] = None
     display_name: Optional[str] = None
@@ -1029,23 +1155,37 @@ class UserPatch(BaseModel):
 
 
 @app.get("/api/admin/users")
-def users(u=Depends(admin_user), c=Depends(db, scope="function")):
+def users(u=Depends(manager_user), c=Depends(db, scope="function")):
     rows = c.execute(
         """SELECT u.id, u.email, u.display_name, u.employee_id, u.cost_center, COALESCE(cc.name, '') AS cost_center_name,
-                  u.role, u.active, u.created_at, u.last_login_at,
+                  u.role, u.active, u.created_at, u.last_login_at, u.requested_role, u.role_requested_at,
                   (u.reset_until IS NOT NULL AND u.reset_until > now()) AS reset_pending
            FROM users u LEFT JOIN cost_centers cc ON cc.code = u.cost_center
-           ORDER BY u.active DESC, u.role, u.display_name""").fetchall()
+           ORDER BY (u.requested_role IS NOT NULL) DESC, u.active DESC, u.display_name""").fetchall()
     return {"items": [{**r, "created_at": r["created_at"].isoformat(),
+                       "role_requested_at": r["role_requested_at"] and r["role_requested_at"].isoformat(),
                        "last_login_at": r["last_login_at"] and r["last_login_at"].isoformat()} for r in rows]}
 
 
+def _guard_target(u, t, new_role=None):
+    """LP DM manages new users and LP only; only Admin grants or changes LP DM / Admin."""
+    if u["role"] == "admin":
+        return
+    if RANK.get(t["role"], 0) >= RANK["lp_dm"] and t["id"] != u["id"]:
+        raise AppError(403, "LP DM แก้ไขได้เฉพาะผู้ใช้ระดับ LP และผู้ที่รอสิทธิ์")
+    if new_role and RANK[new_role] >= RANK["lp_dm"]:
+        raise AppError(403, "สิทธิ์ LP DM / Admin ให้ได้เฉพาะ Admin")
+
+
 @app.patch("/api/admin/users/{uid}")
-def patch_user(uid: int, body: UserPatch, u=Depends(admin_user), c=Depends(db, scope="function")):
+def patch_user(uid: int, body: UserPatch, u=Depends(manager_user), c=Depends(db, scope="function")):
     t = c.execute("SELECT * FROM users WHERE id = %s FOR UPDATE", (uid,)).fetchone()
     if not t:
         raise AppError(404, "ไม่พบผู้ใช้")
-    demote = body.role == "user" and t["role"] == "admin"
+    _guard_target(u, t, body.role if body.role and body.role != t["role"] else None)
+    if t["id"] == u["id"] and body.role and u["role"] != "admin" and body.role != t["role"]:
+        raise AppError(403, "เปลี่ยนสิทธิ์ของตัวเองไม่ได้")
+    demote = body.role is not None and body.role != "admin" and t["role"] == "admin"
     disable = body.active is False and t["active"]
     if (demote or disable) and t["role"] == "admin":
         n = c.execute("SELECT count(*) n FROM users WHERE role = 'admin' AND active").fetchone()["n"]
@@ -1053,7 +1193,7 @@ def patch_user(uid: int, body: UserPatch, u=Depends(admin_user), c=Depends(db, s
             raise AppError(400, "ต้องมี Admin ที่ใช้งานได้อย่างน้อย 1 คน")
     sets, args = [], []
     if body.role:
-        sets.append("role = %s")
+        sets += ["role = %s", "requested_role = NULL", "role_requested_at = NULL"]   # granting answers any request
         args.append(body.role)
     if body.active is not None:
         sets.append("active = %s")
@@ -1075,8 +1215,22 @@ def patch_user(uid: int, body: UserPatch, u=Depends(admin_user), c=Depends(db, s
     return {"ok": True}
 
 
+@app.post("/api/admin/users/{uid}/reject-role")
+def reject_role(uid: int, u=Depends(manager_user), c=Depends(db, scope="function")):
+    t = c.execute("SELECT * FROM users WHERE id = %s", (uid,)).fetchone()
+    if not t:
+        raise AppError(404, "ไม่พบผู้ใช้")
+    _guard_target(u, t)
+    c.execute("UPDATE users SET requested_role = NULL, role_requested_at = NULL WHERE id = %s", (uid,))
+    return {"ok": True}
+
+
 @app.post("/api/admin/users/{uid}/reset-password")
-def reset_password(uid: int, u=Depends(admin_user), c=Depends(db, scope="function")):
+def reset_password(uid: int, u=Depends(manager_user), c=Depends(db, scope="function")):
+    t = c.execute("SELECT * FROM users WHERE id = %s", (uid,)).fetchone()
+    if not t:
+        raise AppError(404, "ไม่พบผู้ใช้")
+    _guard_target(u, t)
     # old password stops working and sessions end; the user sets a new one at the login screen
     r = c.execute(
         f"""UPDATE users SET password_hash = '', must_change_password = FALSE,
@@ -1104,7 +1258,7 @@ CC_RE = re.compile(r"^[A-Za-z0-9._-]{1,20}$")
 
 
 @app.get("/api/admin/cost-centers")
-def cc_list(u=Depends(admin_user), c=Depends(db, scope="function")):
+def cc_list(u=Depends(manager_user), c=Depends(db, scope="function")):
     rows = c.execute(
         """SELECT cc.code, cc.name, cc.active, count(u.id)::int AS users
            FROM cost_centers cc LEFT JOIN users u ON u.cost_center = cc.code
@@ -1117,7 +1271,7 @@ def cc_list(u=Depends(admin_user), c=Depends(db, scope="function")):
 
 
 @app.post("/api/admin/cost-centers")
-def cc_create(body: CostCenterIn, u=Depends(admin_user), c=Depends(db, scope="function")):
+def cc_create(body: CostCenterIn, u=Depends(manager_user), c=Depends(db, scope="function")):
     code, name = body.code.strip(), body.name.strip()[:80]
     if not CC_RE.match(code):
         raise AppError(400, "รหัส Cost Center ใช้ได้เฉพาะตัวอักษร/ตัวเลข ไม่เกิน 20 ตัว")
@@ -1131,7 +1285,7 @@ def cc_create(body: CostCenterIn, u=Depends(admin_user), c=Depends(db, scope="fu
 
 
 @app.patch("/api/admin/cost-centers/{code}")
-def cc_patch(code: str, body: CostCenterPatch, u=Depends(admin_user), c=Depends(db, scope="function")):
+def cc_patch(code: str, body: CostCenterPatch, u=Depends(manager_user), c=Depends(db, scope="function")):
     if not c.execute("SELECT 1 FROM cost_centers WHERE code = %s", (code,)).fetchone():
         raise AppError(404, "ไม่พบ Cost Center")
     if body.name is not None:
@@ -1144,7 +1298,7 @@ def cc_patch(code: str, body: CostCenterPatch, u=Depends(admin_user), c=Depends(
 
 
 @app.delete("/api/admin/cost-centers/{code}")
-def cc_delete(code: str, u=Depends(admin_user), c=Depends(db, scope="function")):
+def cc_delete(code: str, u=Depends(manager_user), c=Depends(db, scope="function")):
     n = c.execute("SELECT count(*)::int n FROM users WHERE cost_center = %s", (code,)).fetchone()["n"]
     if n:
         raise AppError(400, f"มีผู้ใช้ {n} คนอยู่ใน Cost Center นี้ — ใช้ปิดการใช้งานแทน หรือย้ายผู้ใช้ก่อน")

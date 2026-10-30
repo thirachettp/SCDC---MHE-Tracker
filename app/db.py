@@ -51,7 +51,7 @@ def clean_db_url(raw: str) -> str:
 DB_ENV_NAME, _RAW_DB_URL = _pick_db_url()
 DATABASE_URL = clean_db_url(_RAW_DB_URL) if _RAW_DB_URL else ""
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 DEFAULT_RECON_CATEGORIES = ["LP คีย์ผิด", "MHE คีย์ผิด", "นับผิดหน้างาน", "สลับสาขา", "ผิด Trip",
                             "ของค้าง/ส่งรอบถัดไป", "อื่นๆ"]
@@ -255,6 +255,9 @@ SCHEMA = [
     "ALTER TABLE trip_records ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ",
     # ---- v5: admin reset → the user sets a new password themselves (window ends at this time)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_until TIMESTAMPTZ",
+    # ---- v6: roles user (new, waiting) / lp / lp_dm / admin + role requests
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_role TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role_requested_at TIMESTAMPTZ",
 ]
 
 
@@ -295,6 +298,13 @@ def migrate():
             c.execute("UPDATE plan_files SET modified_time = NULL WHERE status = 'ok' "
                       "AND drive_file_id NOT LIKE 'upload:%%' AND imported_at > now() - interval '14 days'")
             c.execute("INSERT INTO app_state(key, value) VALUES ('reimport_v3', 'done')")
+        # v6: widen the role check; everyone who was already using the app ('user') becomes LP
+        if not c.execute("SELECT 1 FROM app_state WHERE key = 'roles_v6'").fetchone():
+            c.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check")
+            c.execute("ALTER TABLE users ADD CONSTRAINT users_role_check "
+                      "CHECK (role IN ('user','lp','lp_dm','admin'))")
+            c.execute("UPDATE users SET role = 'lp' WHERE role = 'user'")
+            c.execute("INSERT INTO app_state(key, value) VALUES ('roles_v6', 'done')")
         c.execute(
             "INSERT INTO app_state(key, value) VALUES ('schema_version', %s) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",

@@ -466,10 +466,18 @@ window.addEventListener("popstate", e => {
 window.addEventListener("beforeunload", e => { if(S.view==="entry" && S.entry && S.entry.dirty){ e.preventDefault(); e.returnValue=""; } });
 
 // ------------------------------------------------------------------ chrome
-function isAdmin(){ return S.user && S.user.role === "admin"; }
+const ROLE_RANK = {user:0, lp:1, lp_dm:2, admin:3};
+const ROLE_LABEL = {user:"รอสิทธิ์", lp:"LP", lp_dm:"LP DM", admin:"Admin"};
+const ROLE_PILL = {user:"grey", lp:"ok", lp_dm:"blue", admin:"warn"};
+function rank(){ return S.user ? (ROLE_RANK[S.user.role] ?? 0) : -1; }
+function isAdmin(){ return rank() >= 3; }
+function isManager(){ return rank() >= 2; }   // LP DM + Admin
+function isStaff(){ return rank() >= 1; }     // LP and up
+function rolePill(r, style="font-size:11px;padding:1px 8px"){ return `<span class="pill ${ROLE_PILL[r]||"grey"}" style="${style}">${ROLE_LABEL[r]||r}</span>`; }
 function nav(active){
   const items = [["leg","บันทึก",I.truck],["dash","Dashboard",I.dash],["review","ตรวจสอบ",I.review]];
-  if(isAdmin()) items.push(["recon","Reconcile",I.recon],["import","นำเข้า",I.import],["users","ผู้ใช้",I.users]);
+  if(isAdmin()) items.push(["recon","Reconcile",I.recon],["import","นำเข้า",I.import]);
+  if(isManager()) items.push(["users","ผู้ใช้",I.users]);
   return `<nav class="nav">${items.map(([v,l,ic]) =>
     `<button data-act="nav" data-v="${v}" class="${active===v?"on":""}" ${active===v?'aria-current="page"':""}>${ic}${l}</button>`).join("")}</nav>`;
 }
@@ -478,7 +486,7 @@ function hdrMain(title){
   return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">${esc(title)}</div><div class="ver">${VERSION}</div></div>
     <button class="userchip" data-act="account" aria-label="บัญชีผู้ใช้">
       <div style="text-align:right"><div style="font-size:14px;font-weight:600">${esc(u.display_name)}</div>
-      <div style="font-size:11px;color:var(--dark-ink)">${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div>
+      <div style="font-size:11px;color:var(--dark-ink)">${ROLE_LABEL[u.role]||u.role}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div>
       <div class="avatar">${esc(initials(u.display_name))}</div></button></header>`;
 }
 function hdrBack(title, sub="", act="back", right=""){
@@ -507,8 +515,9 @@ function render(){
     app.innerHTML = vChangePw(true);
   } else {
     const views = {leg:vLeg, doc:vDoc, entry:vEntry, dash:vDash, review:vReview, detail:vDetail, recon:vRecon, import:vImport, users:vUsers};
-    if(!isAdmin() && ["recon","import","users"].includes(S.view)) S.view = "leg";
-    app.innerHTML = (views[S.view] || vLeg)();
+    if(!isAdmin() && ["recon","import"].includes(S.view)) S.view = "leg";
+    if(!isManager() && S.view === "users") S.view = "leg";
+    app.innerHTML = !isStaff() ? vPending() : (views[S.view] || vLeg)();
   }
   app.classList.toggle("wide", !!S.user && ["recon","review","import","users","dash"].includes(S.view));
   after();
@@ -583,7 +592,7 @@ const GUIDE = [
   {c:"var(--brand)", bg:"var(--brand-soft)", ic:"truckBig", t:"ยินดีต้อนรับ", d:"แอปนี้ใช้บันทึกจำนวน MHE ที่ขึ้น–ลงรถ แยกรายสาขา",
    li:["<b>Pallet · Totebox · Rollcage · Box</b>","ใช้บนมือถือได้เลย ไม่ต้องติดตั้ง","ทำตาม 4 ขั้นง่ายๆ ในหน้าถัดไป"]},
   {c:"#2C3A73", bg:"var(--blue-bg)", ic:"users", t:"สมัคร และเข้าสู่ระบบ", d:"ทำครั้งแรกครั้งเดียว",
-   li:["สมัครด้วย <b>ชื่อ · รหัสพนักงาน · Cost Center</b> (ไม่มี Cost Center ของตัวเอง? เลือก <b>+ เพิ่มใหม่</b>)","ครั้งต่อไป ใช้ <b>รหัสพนักงาน</b> + รหัสผ่าน เข้าสู่ระบบ","ติ๊ก “จดจำการเข้าสู่ระบบ” จะไม่ต้องเข้าใหม่ทุกวัน"]},
+   li:["สมัครด้วย <b>ชื่อ · รหัสพนักงาน · Cost Center</b> (ไม่มี Cost Center ของตัวเอง? เลือก <b>+ เพิ่มใหม่</b>)","สมัครแล้วกด <b>ขอสิทธิ์</b> (LP หรือ LP DM) แล้วรออนุมัติ — หน้าจอจะเปลี่ยนเองเมื่อได้สิทธิ์","ครั้งต่อไป ใช้ <b>รหัสพนักงาน</b> + รหัสผ่าน เข้าสู่ระบบ","ติ๊ก “จดจำการเข้าสู่ระบบ” จะไม่ต้องเข้าใหม่ทุกวัน"]},
   {c:"var(--warn-ink)", bg:"var(--warn-bg)", ic:"truckBack", t:"① เลือกขา", d:"เลือกว่ากำลังบันทึกเที่ยวไหน",
    li:["<b>ขากลับเข้าคลัง</b> = งานหลักของ LP","<b>ขาออกจากคลัง</b> = ข้อมูลตั้งต้น ใช้เทียบตอนรถกลับ"]},
   {c:"var(--brand)", bg:"var(--brand-soft)", ic:"search", t:"② พิมพ์เลข Trip / Load", d:"พิมพ์จากตัวแรก รายการจะกรองให้เอง",
@@ -671,6 +680,30 @@ function vChangePw(forced){
     <button class="btn ghost" type="button" data-act="logout">ออกจากระบบ</button>
   </form>`;
 }
+
+// ================================================================== waiting for a role
+function vPending(){
+  const u = S.user, req = u.requested_role;
+  const opt = (r, title, desc) => `<button class="legcard ${req===r?"primary":"secondary"}" data-act="role-req" data-r="${r}" ${req===r?"disabled":""}>
+      <div class="row between" style="width:100%"><div style="font-size:22px;font-weight:700">${title}</div>${req===r?`<span class="pill" style="background:#2A6B6F;color:#fff">ส่งคำขอแล้ว</span>`:""}</div>
+      <div style="font-size:14px;line-height:1.5;${req===r?"color:#C4E0DD":"color:var(--ink2)"}">${desc}</div></button>`;
+  return `${hdrMain("ขอสิทธิ์ใช้งาน")}
+  <div class="main" style="padding-top:20px;gap:14px">
+    <div style="font-size:20px;font-weight:700">สวัสดี ${esc(u.display_name)}</div>
+    ${req ? `<div class="banner info">${I.info}<div>ส่งคำขอสิทธิ์ <b>${ROLE_LABEL[req]}</b> แล้ว${u.role_requested_at?` เมื่อ ${fmtDT(u.role_requested_at)}`:""} — รอ LP DM หรือ Admin อนุมัติ<br>หน้านี้จะเปลี่ยนเองเมื่อได้รับสิทธิ์</div></div>`
+          : `<div class="banner warn">${I.warn}<div>บัญชีของคุณยังไม่มีสิทธิ์ใช้งาน เลือกสิทธิ์ที่ต้องการแล้วกดขอ</div></div>`}
+    ${opt("lp", "LP", "บันทึกการรับสินค้า และดูข้อมูลของทุกคนได้ (แก้ไขได้เฉพาะของตัวเอง) · Dashboard")}
+    ${opt("lp_dm", "LP DM", "ทุกเมนู ยกเว้น Reconcile และนำเข้า · ตรวจสอบ/แก้ไขข้อมูลของทุกคน · จัดการผู้ใช้")}
+    ${req ? `<div class="grid2"><button class="btn ghost" data-act="role-cancel">ยกเลิกคำขอ</button><button class="btn outline" data-act="role-check">${I.refresh} ตรวจสอบสถานะ</button></div>`
+          : `<button class="btn ghost" data-act="role-check">${I.refresh} ตรวจสอบสถานะ (ถ้า Admin ให้สิทธิ์แล้ว)</button>`}
+  </div>`;
+}
+async function refreshMe(){
+  try{ const m = await api("/api/me"); const was = S.user.role; S.user = m.user;
+    if(was !== S.user.role && isStaff()){ toast(`ได้รับสิทธิ์ ${ROLE_LABEL[S.user.role]} แล้ว`); afterLogin(); return true; } }catch(e){}
+  return false;
+}
+setInterval(() => { if(S.user && !isStaff() && document.visibilityState === "visible" && !$("#layer").innerHTML) refreshMe().then(ch => { if(!ch) render(); }); }, 30000);
 
 // ================================================================== leg
 function vLeg(){
@@ -793,7 +826,8 @@ function vEntry(){
   const E = S.entry;
   const card = tripCard(E);
   const banners = [];
-  if(E.record) banners.push(`<div class="banner warn">${I.warn}<div>บันทึกแล้วโดย <b>${esc(E.record.updated_by||"-")}</b> เมื่อ ${fmtDT(E.record.updated_at)} (${E.record.complete?"ครบ":"ยังไม่ครบ"}) — การบันทึกครั้งนี้จะเป็นการ<b>แก้ไข</b> และเก็บประวัติไว้</div></div>`);
+  if(entryRO()) banners.push(`<div class="banner grey">${I.info}<div><b>ดูได้อย่างเดียว</b> — Trip นี้บันทึกโดย <b>${esc(E.record.created_by||"-")}</b> · LP แก้ไขได้เฉพาะของตัวเอง (ให้ LP DM แก้ไขให้)</div></div>`);
+  else if(E.record) banners.push(`<div class="banner warn">${I.warn}<div>บันทึกแล้วโดย <b>${esc(E.record.updated_by||"-")}</b> เมื่อ ${fmtDT(E.record.updated_at)} (${E.record.complete?"ครบ":"ยังไม่ครบ"}) — การบันทึกครั้งนี้จะเป็นการ<b>แก้ไข</b> และเก็บประวัติไว้</div></div>`);
   if(!E.in_plan && !E.has_baseline && !E.record) banners.push(`<div class="banner grey">${I.info}<div>ไม่พบ Trip นี้ในแผนโหลด — กด <b>เพิ่มสาขา</b> ด้านล่างเพื่อกรอก</div></div>`);
   const visible = E.rows.map((r,i)=>[r,i]).filter(([r]) => rowVisible(r, E.filter));
   return `${hdrBack("กรอกจำนวน", "", "back", `<div style="padding-right:6px">${legPill(E.leg)}</div>`)}
@@ -808,11 +842,11 @@ function vEntry(){
   <div class="main" style="padding-top:10px;gap:8px">
     ${banners.join("")}
     <div id="rows" style="display:flex;flex-direction:column;gap:8px">${visible.map(([r,i]) => rowHtml(r,i)).join("") || (E.rows.length?`<div class="empty">ไม่พบสาขาที่ตรงกับ "${esc(E.filter)}"</div>`:"")}</div>
-    <button class="btn dashed" data-act="add-store">${I.plus} เพิ่มสาขา</button>
+    ${entryRO() ? "" : `<button class="btn dashed" data-act="add-store">${I.plus} เพิ่มสาขา</button>`}
   </div>
   <div class="foot">
     <div class="totals"><div style="font-size:12px;font-weight:700;text-align:left">รวม</div>${QK.map(k=>`<div><div class="k">${QL[k]}</div><div class="v" id="tot_${k}">0</div></div>`).join("")}</div>
-    <button class="btn action" data-act="to-confirm">${I.check} บันทึก${E.leg==="ret"?"ขากลับ":"ขาออก"}</button>
+    ${entryRO() ? `<button class="btn ghost" data-act="back">กลับ</button>` : `<button class="btn action" data-act="to-confirm">${I.check} บันทึก${E.leg==="ret"?"ขากลับ":"ขาออก"}</button>`}
     <div class="hint" style="text-align:center;margin-top:-2px" id="entHint"></div>
   </div>`;
 }
@@ -821,15 +855,15 @@ function tripCard(E){
   return `<div class="tripcard">
     <div class="kv">${f("Trip", E.trip_no)}${f("Load", E.load_no || E.doc_no)}${f("ทะเบียนรถ", E.truck_id)}${f("ประเภทรถ", E.truck_type)}${f("Transporter", E.transporter)}</div>
     <button class="doorbtn ${E.door?"":"empty"}" data-act="door" aria-label="ระบุ Door No."><span class="k">DOOR</span><span class="v">${E.door ?? "?"}</span>
-      <span style="font-size:10px;color:var(--muted)">${E.door?"แตะเพื่อแก้":"แตะเพื่อใส่"}</span></button>
+      <span style="font-size:10px;color:var(--muted)">${entryRO()?"":E.door?"แตะเพื่อแก้":"แตะเพื่อใส่"}</span></button>
   </div>`;
 }
 // วันเวลาที่รับสินค้า — defaults to now for a new record
 function recvRow(E){
   const max = bkkLocal(new Date(Date.now() + 86400000));
   return `<div class="recvrow"><div class="rl">${I.clock}<span>วันเวลารับสินค้า</span></div>
-    <input type="datetime-local" class="inp mono" id="recvAt" value="${esc(E.received||"")}" max="${max}" data-in="recv" aria-label="วันเวลาที่รับสินค้า">
-    <button type="button" class="btn sm ghost" data-act="recv-now">ตอนนี้</button></div>`;
+    <input type="datetime-local" class="inp mono" id="recvAt" value="${esc(E.received||"")}" max="${max}" data-in="recv" aria-label="วันเวลาที่รับสินค้า" ${entryRO()?"disabled":""}>
+    ${entryRO() ? "" : `<button type="button" class="btn sm ghost" data-act="recv-now">ตอนนี้</button>`}</div>`;
 }
 // compact one-line card shown while the numpad is open on a quantity cell
 function tripStrip(E){
@@ -850,7 +884,7 @@ function rowHtml(r, i){
   const cls = r.deleted ? "del" : (rowEntered(r) ? "done" : (extra ? "extra" : ""));
   const head = `<div class="row"><span class="code">${esc(r.store_code)}</span>
     <span class="name" title="${esc(r.store_name)}">${extra?'<span class="pill warn" style="font-size:10px;padding:1px 6px;margin-right:4px">นอกแผน</span>':""}${esc(r.store_name||"-")}</span>
-    ${r.deleted
+    ${entryRO() ? "" : r.deleted
       ? `<button class="btn sm ghost" data-act="undel" data-i="${i}" style="height:40px">${I.undo} ยกเลิกลบ</button>`
       : `<button class="sbtn ${r.comment?"note-on":""}" data-act="comment" data-i="${i}" aria-label="Comment สาขา ${esc(r.store_code)}">${I.comment}</button>
          <button class="sbtn del" data-act="del" data-i="${i}" aria-label="ลบสาขา ${esc(r.store_code)}">${I.trash}</button>`}
@@ -896,7 +930,10 @@ function updateTotals(){
 // ================================================================ app numpad
 // S.np = {mode:"cell", i, k, fresh} | {mode:"door", val, prev, toConfirm, fresh}
 // fresh = the next digit replaces the current value (first key after selecting)
+// LP opening a trip someone else saved: view only
+function entryRO(){ const E = S.entry; return !!(E && E.record && E.record.can_edit === false); }
 function editDoor(toConfirm=false){
+  if(entryRO()){ toast("ดูได้อย่างเดียว — Trip นี้บันทึกโดยผู้อื่น", true); return; }
   const E = S.entry; if(!E) return;
   npClose();
   S.np = {mode:"door", val: E.door != null ? String(E.door) : "", prev: E.door, toConfirm, fresh: true};
@@ -907,6 +944,7 @@ function editDoor(toConfirm=false){
   if(card){ const top = card.getBoundingClientRect().top; if(top < 80 || top > innerHeight * 0.5) window.scrollTo({top: Math.max(0, scrollY + top - 90), behavior:"smooth"}); }
 }
 function npSelect(i, k){
+  if(entryRO()){ toast("ดูได้อย่างเดียว — Trip นี้บันทึกโดยผู้อื่น", true); return; }
   const E = S.entry, r = E && E.rows[i]; if(!r || r.deleted) return;
   const ae = document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) ae.blur();
   if(S.np && S.np.mode === "door") npDoorCommit(false);
@@ -1044,12 +1082,14 @@ document.addEventListener("focusin", e => {
 });
 window.addEventListener("popstate", () => npClose());
 async function editComment(i){
+  if(entryRO()){ toast("ดูได้อย่างเดียว — Trip นี้บันทึกโดยผู้อื่น", true); return; }
   const r = S.entry.rows[i];
   const v = await ask({title:`Comment · ${r.store_code}`, body: esc(r.store_name), input:{textarea:true, value:r.comment, placeholder:"เช่น สาขายังไม่คืน Pallet 3 ใบ", max:500}, ok:"บันทึก Comment"});
   if(v === null) return;
   r.comment = v.trim(); markDirty(); rerenderRow(i);
 }
 async function delRow(i){
+  if(entryRO()){ toast("ดูได้อย่างเดียว — Trip นี้บันทึกโดยผู้อื่น", true); return; }
   const E = S.entry, r = E.rows[i];
   const removable = !r.known && !r.in_plan && !r.baseline;
   npClose();
@@ -1061,6 +1101,7 @@ async function delRow(i){
   r.deleted = true; markDirty(); rerenderRow(i);
 }
 function addStoreSheet(){
+  if(entryRO()){ toast("ดูได้อย่างเดียว — Trip นี้บันทึกโดยผู้อื่น", true); return; }
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="เพิ่มสาขา" style="max-height:88vh">
     <div class="sh"><div class="grab"></div><div class="row between"><div style="font-size:18px;font-weight:700">เพิ่มสาขา</div>
     <button class="iconbtn" style="background:var(--soft);width:40px;height:40px;border-radius:20px" data-close aria-label="ปิด">${I.x}</button></div>
@@ -1115,6 +1156,7 @@ function focusRow(i){
 
 // ---------------------------------------------------------------- confirm
 function confirmSheet(){
+  if(entryRO()){ toast("ดูได้อย่างเดียว — Trip นี้บันทึกโดยผู้อื่น", true); return; }
   const E = S.entry;
   if(!E.rows.length){ toast("ยังไม่มีสาขา กดเพิ่มสาขาก่อน", true); return; }
   const entered = E.rows.filter(rowEntered);
@@ -1204,7 +1246,7 @@ function vReview(){
       ${!r.complete?`<span style="margin-left:auto;font-family:'IBM Plex Sans Thai';color:var(--warn-ink)">${r.entered_stores}/${r.expected_stores} สาขา</span>`:""}</div></button>`).join("");
   const c = R.counts || {all:"",complete:"",incomplete:""};
   return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">ตรวจสอบข้อมูล</div><div class="ver">${VERSION}</div></div>
-    <button class="btn sm" style="background:transparent;border:1px solid #4E7A76;color:#fff" data-act="rev-export">${I.dl} Export</button></header>
+</header>
   <div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid var(--line)">
     <div class="search">${I.search}<input id="revQ" value="${esc(R.q)}" placeholder="ค้นหา Document, Trip, สาขา, ทะเบียนรถ" data-in="revq" autocomplete="off"></div>
     <div class="chips">
@@ -1289,7 +1331,9 @@ function vDash(){
       <button class="chip ${D.date===yest?"on":""}" data-act="dash-date" data-d="${yest}">เมื่อวาน</button>
       <label class="chip ${D.date!==today&&D.date!==yest?"on":""}" style="position:relative">${D.date!==today&&D.date!==yest?fmtD(D.date):"เลือกวันที่"}
         <input type="date" value="${D.date}" max="${today}" data-in="dashdate" style="position:absolute;inset:0;opacity:0;width:100%" aria-label="เลือกวันที่"></label>
-      <button class="chip" data-act="dash-refresh" style="margin-left:auto" aria-label="รีเฟรช">${I.refresh}${D.at?` ${hm(D.at)}`:""}</button>
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <button class="chip" data-act="dash-refresh" aria-label="รีเฟรช">${I.refresh}${D.at?` ${hm(D.at)}`:""}</button>
+        <button class="chip on" data-act="dash-export" ${items.length?"":"disabled"} aria-label="Export Excel">${I.dl} Export</button></span>
     </div>
     <div class="seg">${[["ret","ขากลับเข้าคลัง"],["out","ขาออก"],["all","ทุกขา"]].map(([v,l])=>`<button class="${D.leg===v?"on":""}" data-act="dash-leg" data-v="${v}">${l}</button>`).join("")}</div>
   </div>
@@ -1341,7 +1385,8 @@ function vDetail(){
     <div class="tbl"><div class="tr h"><div style="text-align:left">สาขา</div><div>P</div><div>TB</div><div>RC</div><div>B</div></div>${rows}
       <div class="tr total"><div class="st" style="font-weight:700">รวม</div>${QK.map(k=>`<div class="q"><div class="v">${t[k]}</div></div>`).join("")}</div></div>
     <div class="hint">รถ ${esc(r.truck_id||"-")}${r.truck_type?` · ${esc(r.truck_type)}`:""}${r.transporter?` · ${esc(r.transporter)}`:""} · สร้างโดย ${esc(r.created_by||"-")} ${fmtDT(r.created_at)} · แก้ไขล่าสุด ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at)}</div>
-    <button class="btn outline" data-act="edit-rec">${I.edit} แก้ไข</button>
+    ${r.can_edit ? `<button class="btn outline" data-act="edit-rec">${I.edit} แก้ไข</button>`
+      : `<div class="banner grey">${I.info}<div>ดูได้อย่างเดียว — LP แก้ไขได้เฉพาะ Trip ที่ตัวเองบันทึก (ให้ LP DM แก้ไขให้)</div></div>`}
     <div style="font-size:16px;font-weight:700;padding-top:6px">ประวัติการแก้ไข</div>
     <div>${hist || `<div class="hint">-</div>`}</div>
   </div>`;
@@ -1616,11 +1661,18 @@ function vUsers(){
   if(!U) return `${hdrMain("จัดการผู้ใช้")}<div style="padding:14px 16px 0">${usersTabs("users")}</div><div class="spin"></div>${nav("users")}`;
   const q = (U.q||"").toLowerCase();
   const items = U.items.filter(u => !q || u.display_name.toLowerCase().includes(q) || (u.email||"").includes(q) || (u.cost_center||"").toLowerCase().includes(q) || (u.employee_id||"").toLowerCase().includes(q));
-  const admins = U.items.filter(u=>u.role==="admin").length;
+  const cnt = r => U.items.filter(u=>u.role===r).length;
+  const reqs = U.items.filter(u => u.requested_role && u.active);
+  const reqBox = reqs.length ? `<div class="card" style="gap:10px;border-color:var(--blue-ink)"><div style="font-weight:700">คำขอสิทธิ์ ${reqs.length} รายการ</div>
+    ${reqs.map(u => { const may = isAdmin() || ROLE_RANK[u.requested_role] < 2;
+      return `<div class="row" style="gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:160px"><b>${esc(u.display_name)}</b> <span class="hint mono">#${esc(u.employee_id||"-")}</span>
+        <div class="hint">ขอ ${rolePill(u.requested_role)} ${u.role_requested_at?fmtDT(u.role_requested_at):""}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div>
+        ${may ? `<button class="btn sm primary" data-act="role-approve" data-id="${u.id}">อนุมัติ</button><button class="btn sm ghost" data-act="role-reject" data-id="${u.id}">ปฏิเสธ</button>`
+              : `<span class="hint">รอ Admin อนุมัติ</span>`}</div>`; }).join("")}</div>` : "";
   const list = items.map(u => `<div class="item" style="flex-direction:row;align-items:center;gap:12px;${u.active?"":"opacity:.55"}">
-      <div class="avatar" style="${u.role==="admin"?"":"background:var(--ok-bg);color:var(--ok-ink)"}">${esc(initials(u.display_name))}</div>
+      <div class="avatar" style="${u.role==="admin"?"":u.role==="user"?"background:var(--soft);color:var(--ink2)":"background:var(--ok-bg);color:var(--ok-ink)"}">${esc(initials(u.display_name))}</div>
       <div style="flex:1;min-width:0"><div class="row" style="gap:6px;flex-wrap:wrap"><span style="font-size:15px;font-weight:700">${esc(u.display_name)}</span>
-        <span class="pill ${u.role==="admin"?"warn":"ok"}" style="font-size:11px;padding:1px 8px">${u.role==="admin"?"Admin":"User"}</span>
+        ${rolePill(u.role)}${u.requested_role?`<span class="pill blue" style="font-size:11px;padding:1px 8px">ขอ ${ROLE_LABEL[u.requested_role]}</span>`:""}
         ${u.active?"":`<span class="pill bad" style="font-size:11px;padding:1px 8px">ปิดใช้งาน</span>`}
         ${u.reset_pending?`<span class="pill blue" style="font-size:11px;padding:1px 8px">รอตั้งรหัสใหม่</span>`:""}
         ${u.cost_center?`<span class="hint">${esc(ccLabel(u.cost_center,u.cost_center_name))}</span>`:`<span class="hint" style="color:var(--warn-ink)">ยังไม่มี CC</span>`}</div>
@@ -1630,8 +1682,8 @@ function vUsers(){
   <div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid var(--line)">
     ${usersTabs("users")}
     <div class="search">${I.search}<input id="usQ" value="${esc(U.q||"")}" placeholder="ค้นหาชื่อ รหัสพนักงาน หรือ Cost Center" data-in="usq" autocomplete="off"></div>
-    <div class="hint">ทั้งหมด ${U.items.length} คน · Admin ${admins} · User ${U.items.length-admins}</div></div>
-  <div class="main"><div class="list grid">${list || `<div class="empty">ไม่พบผู้ใช้</div>`}</div></div>${nav("users")}`;
+    <div class="hint">ทั้งหมด ${U.items.length} คน · Admin ${cnt("admin")} · LP DM ${cnt("lp_dm")} · LP ${cnt("lp")} · รอสิทธิ์ ${cnt("user")}</div></div>
+  <div class="main">${reqBox}<div class="list grid">${list || `<div class="empty">ไม่พบผู้ใช้</div>`}</div></div>${nav("users")}`;
 }
 function vCostCenters(){
   if(S.ccs === null || S.ccs === undefined){ S.ccs = false; loadCcs(); }
@@ -1684,10 +1736,11 @@ async function loadUsers(){ try{ const r = await api("/api/admin/users"); S.user
 function userMenu(id){
   const u = S.users.items.find(x => x.id === id); if(!u) return;
   const self = u.id === S.user.id;
+  if(!isAdmin() && ROLE_RANK[u.role] >= 2 && !self){ toast("ผู้ใช้ระดับ LP DM / Admin แก้ไขได้เฉพาะ Admin", true); return; }
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="ตัวเลือกผู้ใช้"><div class="sh"><div class="grab"></div>
       <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)}`:""}${u.email?` · ${esc(u.email)}`:""}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
-      ${u.role==="admin" ? `<button class="btn ghost" data-u="demote">ลดสิทธิ์เป็น User</button>` : `<button class="btn primary" data-u="promote">ตั้งเป็น Admin</button>`}
+      ${(isAdmin() || ROLE_RANK[u.role] < 2) && !(self && !isAdmin()) ? `<button class="btn primary" data-u="role">เปลี่ยนสิทธิ์ (ตอนนี้: ${ROLE_LABEL[u.role]})</button>` : ""}
       <button class="btn ghost" data-u="emp">แก้ไขรหัสพนักงาน</button>
       <button class="btn ghost" data-u="cc">แก้ไข Cost Center</button>
       <button class="btn ghost" data-u="reset">รีเซ็ตรหัสผ่าน</button>
@@ -1696,10 +1749,11 @@ function userMenu(id){
   $$("[data-u]", ov).forEach(b => b.onclick = async () => {
     const a = b.dataset.u; closeLayer(); if(a === "close") return;
     try{
-      if(a === "promote" || a === "demote"){
-        const ok = await ask({title: a==="promote"?`ตั้ง ${u.display_name} เป็น Admin?`:`ลดสิทธิ์ ${u.display_name} เป็น User?`, ok:"ยืนยัน"}); if(!ok) return;
-        await api(`/api/admin/users/${id}`, {method:"PATCH", body:{role: a==="promote"?"admin":"user"}});
-        if(self && a === "demote"){ const m = await api("/api/me"); S.user = m.user; toast("ลดสิทธิ์ตัวเองแล้ว"); go("leg"); return; }
+      if(a === "role"){
+        const opts = ["user","lp","lp_dm","admin"].filter(r => isAdmin() || ROLE_RANK[r] < 2).map(r => [r, ROLE_LABEL[r]]);
+        const v = await ask({title:`สิทธิ์ของ ${u.display_name}`, body: u.requested_role?`ผู้ใช้ขอสิทธิ์ <b>${ROLE_LABEL[u.requested_role]}</b>`:"", input:{select:opts, value:u.requested_role||u.role}, ok:"บันทึก"}); if(v === null || v === u.role) return;
+        await api(`/api/admin/users/${id}`, {method:"PATCH", body:{role:v}});
+        if(self){ const m = await api("/api/me"); S.user = m.user; toast("เปลี่ยนสิทธิ์ตัวเองแล้ว"); go("leg"); return; }
       } else if(a === "off" || a === "on"){
         const ok = await ask({title: a==="off"?`ปิดการใช้งาน ${u.display_name}?`:`เปิดการใช้งาน ${u.display_name}?`, body: a==="off"?"ผู้ใช้จะถูกออกจากระบบทันที และเข้าสู่ระบบไม่ได้":"", ok:"ยืนยัน", danger:a==="off"}); if(!ok) return;
         await api(`/api/admin/users/${id}`, {method:"PATCH", body:{active: a==="on"}});
@@ -1730,7 +1784,7 @@ function accountSheet(){
   const u = S.user;
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="บัญชีผู้ใช้"><div class="sh"><div class="grab"></div>
     <div class="row" style="gap:12px"><div class="avatar" style="width:44px;height:44px;border-radius:22px">${esc(initials(u.display_name))}</div>
-    <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
+    <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${ROLE_LABEL[u.role]||u.role}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
       <button class="btn ghost" data-a="guide">วิธีใช้งาน</button>
       <button class="btn primary" data-a="cc">แก้ไขข้อมูลส่วนตัว</button>
@@ -1773,7 +1827,7 @@ function logout(expired){
 }
 function afterLogin(){
   S.view = "leg"; history.replaceState({view:"leg"}, "", "#leg"); render();
-  api("/api/sync/auto", {method:"POST"}).catch(()=>{});   // background plan refresh
+  if(isStaff()) api("/api/sync/auto", {method:"POST"}).catch(()=>{});   // background plan refresh
 }
 
 // ================================================================== events
@@ -1841,6 +1895,17 @@ const A = {
   "qr-save": () => qrSave(),
   "logout": () => logout(),
   "account": () => accountSheet(),
+  "role-req": async el => { const r = el.dataset.r;
+    const ok = await ask({title:`ขอสิทธิ์ ${ROLE_LABEL[r]}?`, body:"คำขอจะส่งไปให้ LP DM / Admin อนุมัติ", ok:"ส่งคำขอ"}); if(!ok) return;
+    try{ S.user = (await api("/api/me/role-request", {method:"POST", body:{role:r}})).user; toast("ส่งคำขอแล้ว"); render(); }catch(e){ toast(e.message, true); } },
+  "role-cancel": async () => { try{ S.user = (await api("/api/me/role-request", {method:"DELETE"})).user; render(); }catch(e){ toast(e.message, true); } },
+  "role-check": async el => { el.disabled = true; const ch = await refreshMe(); if(!ch){ toast("ยังรออนุมัติ"); render(); } },
+  "role-approve": async el => { const u = S.users.items.find(x => x.id === +el.dataset.id); if(!u) return;
+    try{ await api(`/api/admin/users/${u.id}`, {method:"PATCH", body:{role:u.requested_role}}); toast(`อนุมัติ ${u.display_name} เป็น ${ROLE_LABEL[u.requested_role]} แล้ว`); S.users = null; render(); }catch(e){ toast(e.message, true); } },
+  "role-reject": async el => { const u = S.users.items.find(x => x.id === +el.dataset.id); if(!u) return;
+    const ok = await ask({title:`ปฏิเสธคำขอของ ${u.display_name}?`, ok:"ปฏิเสธ", danger:true}); if(!ok) return;
+    try{ await api(`/api/admin/users/${u.id}/reject-role`, {method:"POST"}); S.users = null; render(); }catch(e){ toast(e.message, true); } },
+  "dash-export": () => download(`/api/dashboard/export?day=${S.dash.date}&leg=${S.dash.leg}`, `Dashboard_${S.dash.date}.xlsx`),
   "nav": el => { const v = el.dataset.v;
     if(v === "review" && S.review) S.review.items = null;
     if(v === "import") S.imp = null; if(v === "users") S.users = null;
@@ -1870,7 +1935,6 @@ const A = {
   "rev-date": el => { S.review.date = el.dataset.d; S.review.items = null; render(); },
   "rev-leg": el => { S.review.leg = el.dataset.v; S.review.items = null; render(); },
   "rev-status": el => { S.review.status = el.dataset.v; S.review.items = null; render(); },
-  "rev-export": () => download("/api/records/export?" + revParams(), "SummaryTrip.xlsx"),
   "rc-type": el => { S.recon.mtype = el.dataset.v; rcReload(); },
   "rc-leg": el => { S.recon.leg = el.dataset.v; rcReload(); },
   "rc-more": () => { S.recon.limit += 200; render(); },
