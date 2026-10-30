@@ -51,7 +51,7 @@ def clean_db_url(raw: str) -> str:
 DB_ENV_NAME, _RAW_DB_URL = _pick_db_url()
 DATABASE_URL = clean_db_url(_RAW_DB_URL) if _RAW_DB_URL else ""
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DEFAULT_RECON_CATEGORIES = ["LP คีย์ผิด", "MHE คีย์ผิด", "นับผิดหน้างาน", "สลับสาขา", "ผิด Trip",
                             "ของค้าง/ส่งรอบถัดไป", "อื่นๆ"]
@@ -250,6 +250,9 @@ SCHEMA = [
         PRIMARY KEY (leg, trip_key, store_code, mtype)
     )
     """,
+    # ---- v4: e-mail optional (sign-up = employee ID), goods-received date-time per record
+    "ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
+    "ALTER TABLE trip_records ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ",
 ]
 
 

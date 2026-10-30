@@ -204,6 +204,12 @@ select.inp{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns=
 .qrcard .qi{display:flex;flex-direction:column;gap:6px;min-width:0}
 .qrcard .qu{font-size:12px;color:var(--brand);word-break:break-all}
 @media (max-width:360px){ .qrcard{flex-direction:column;text-align:center} .qrcard .row{justify-content:center} }
+.ccnew{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:8px;margin-top:8px}
+.recvrow{margin-top:8px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:8px 10px 10px 12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px;align-items:center}
+.recvrow .rl{grid-column:1/-1;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted)}
+.recvrow .inp{height:46px;font-size:16px;padding:0 10px;min-width:0;width:100%}
+.recvrow .btn{height:46px}
+body.np-cell .recvrow{display:none}
 /* app numpad */
 .tripstrip{display:none;align-items:center;gap:10px;padding:8px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;font-size:13px;width:100%;text-align:left;color:inherit;font:inherit}
 .tripstrip .tn{font-family:var(--mono);font-weight:700}
@@ -267,6 +273,7 @@ const QS = {pallet:"P", totebox:"TB", rollcage:"RC", box:"B"};
 
 // ------------------------------------------------------------------ icons
 const I = {
+  clock:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   back:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
   next:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
   truck:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h11v9H3z M14 9h4l3 3v3h-7z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>',
@@ -305,6 +312,14 @@ function lsSet(k,v){ try { store()?.setItem(k,v); } catch(e){} }
 function lsDel(k){ try { store()?.removeItem(k); } catch(e){} }
 function bkkDate(d=new Date()){ return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok"}).format(d); }
 function addDays(iso, n){ const d = new Date(iso+"T12:00:00+07:00"); d.setUTCDate(d.getUTCDate()+n); return bkkDate(d); }
+// <input type=datetime-local> values in Bangkok time: "YYYY-MM-DDTHH:MM"
+function bkkLocal(d=new Date()){
+  const p = new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(d);
+  const g = t => p.find(x=>x.type===t)?.value;
+  return `${g("year")}-${g("month")}-${g("day")}T${g("hour")==="24"?"00":g("hour")}:${g("minute")}`;
+}
+function fromBkkLocal(v){ return v ? `${v}:00+07:00` : null; }
+function fmtDTY(iso){ if(!iso) return "-"; const v = bkkLocal(new Date(iso)); return `${v.slice(8,10)}/${v.slice(5,7)}/${v.slice(0,4)} ${v.slice(11)}`; }
 function fmtDT(iso){
   if(!iso) return "-";
   const p = new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Bangkok",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).formatToParts(new Date(iso));
@@ -480,15 +495,38 @@ function vLogin(){
   <form class="main" style="padding:28px 24px;gap:16px" data-form="login" novalidate>
     <div class="row between"><div style="font-size:22px;font-weight:700">เข้าสู่ระบบ</div>
       <button type="button" class="btn sm ghost" data-act="guide">${I.info} วิธีใช้งาน</button></div>
-    <div class="field"><label class="lbl" for="lE">อีเมล หรือ รหัสพนักงาน</label>
-      <input id="lE" name="email" class="inp" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="เช่น trthirachet หรือ 12345" required>
-      <div class="hint" style="margin-top:4px">พิมพ์แค่ชื่อหน้าอีเมลได้ ไม่ต้องพิมพ์ @${esc(domain())}</div></div>
+    <div class="field"><label class="lbl" for="lE">รหัสพนักงาน</label>
+      <input id="lE" name="email" class="inp" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="เช่น 12345" required></div>
     <div class="field"><label class="lbl" for="lP">รหัสผ่าน</label><input id="lP" name="password" type="password" class="inp" autocomplete="current-password" required></div>
     <label class="row" style="font-size:14px;color:var(--ink2);min-height:44px"><input type="checkbox" name="remember" checked style="width:20px;height:20px;accent-color:var(--brand)"> จดจำการเข้าสู่ระบบบนเครื่องนี้</label>
     <button class="btn primary" type="submit" style="height:54px;font-size:17px">เข้าสู่ระบบ</button>
     <div style="text-align:center;font-size:15px;color:var(--muted)">ยังไม่มีบัญชี? <button type="button" class="linkbtn" data-act="to-register">สมัครใช้งาน</button></div>
     <div style="text-align:center;font-size:12px;color:var(--faint);font-family:var(--mono);margin-top:auto">${VERSION}</div>
   </form>`;
+}
+// Cost Center: pick from the list, or add a new one (code + name)
+const CC_NEW = "__new__";
+function ccPicker(ccs, cur){
+  const none = !ccs.length;
+  return `<div class="field"><label class="lbl" for="rC">Cost Center</label>
+    <select id="rC" name="cost_center" class="inp" data-in="ccpick"${none?' style="display:none"':""}>
+      <option value="">— เลือก Cost Center —</option>${ccs.map(c=>`<option value="${esc(c.code)}"${c.code===cur?" selected":""}>${esc(ccLabel(c.code,c.name))}</option>`).join("")}
+      <option value="${CC_NEW}"${none?" selected":""}>+ เพิ่ม Cost Center ใหม่</option></select>
+    <div id="ccNew" class="ccnew"${none?"":' style="display:none"'}>
+      <input name="cc_code" class="inp mono" maxlength="20" autocapitalize="characters" spellcheck="false" placeholder="รหัส เช่น 82899" aria-label="รหัส Cost Center ใหม่">
+      <input name="cc_name" class="inp" maxlength="80" placeholder="ชื่อ เช่น Mgmt" aria-label="ชื่อ Cost Center ใหม่"></div>
+    <div class="hint" style="margin-top:4px">${none?"ยังไม่มีรายการ — ใส่รหัสและชื่อ Cost Center ของคุณ":"ไม่มีในรายการ? เลือก “+ เพิ่ม Cost Center ใหม่”"}</div></div>`;
+}
+// form data → {cost_center, cost_center_name}
+function ccFromForm(fd){
+  if(fd.cost_center && fd.cost_center !== CC_NEW) return {cost_center: fd.cost_center, cost_center_name: ""};
+  const code = (fd.cc_code||"").trim().toUpperCase(), name = (fd.cc_name||"").trim();
+  if(!code) throw new Error("กรุณาเลือกหรือเพิ่ม Cost Center");
+  if(!/^[A-Z0-9-]{2,20}$/.test(code)) throw new Error("รหัส Cost Center ใช้ตัวอักษร/ตัวเลข 2–20 ตัว");
+  const hit = (S.meta.cost_centers||[]).find(c => c.code.toUpperCase() === code);
+  if(hit) return {cost_center: hit.code, cost_center_name: ""};
+  if(!name) throw new Error("กรุณาใส่ชื่อ Cost Center");
+  return {cost_center: code, cost_center_name: name};
 }
 function vRegister(){
   const ccs = S.meta.cost_centers || [];
@@ -497,14 +535,8 @@ function vRegister(){
     <div class="field"><label class="lbl" for="rN">ชื่อที่แสดง</label><input id="rN" name="display_name" class="inp" maxlength="60" placeholder="เช่น Bank" required>
       <div class="hint" style="margin-top:4px">ใช้เป็น "ชื่อผู้กรอก" ในทุกการบันทึก</div></div>
     <div class="field"><label class="lbl" for="rId">รหัสพนักงาน</label><input id="rId" name="employee_id" class="inp" maxlength="20" autocapitalize="characters" spellcheck="false" placeholder="เช่น 12345" required>
-      <div class="hint" style="margin-top:4px">ใช้เข้าสู่ระบบแทนอีเมลได้</div></div>
-    <div class="field"><label class="lbl" for="rE">อีเมล</label>
-      <div class="search" style="height:52px;background:#fff;border-radius:12px;padding-right:12px">
-        <input id="rE" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="ชื่อหน้าอีเมล" required data-in="regemail" style="font-size:16px">
-        <span id="rEsfx" class="hint" style="white-space:nowrap;font-size:14px">@${esc(domain())}</span></div>
-      <div class="hint" style="margin-top:4px">ถ้าใช้อีเมลโดเมนอื่น พิมพ์อีเมลเต็มได้เลย</div></div>
-    <div class="field" id="ccField"${ccs.length?"":' style="display:none"'}><label class="lbl" for="rC">Cost Center</label>
-      <select id="rC" name="cost_center" class="inp"><option value="">— เลือก Cost Center —</option>${ccs.map(c=>`<option value="${esc(c.code)}">${esc(ccLabel(c.code,c.name))}</option>`).join("")}</select></div>
+      <div class="hint" style="margin-top:4px">ใช้เป็นชื่อผู้ใช้ตอนเข้าสู่ระบบ</div></div>
+    ${ccPicker(ccs, "")}
     <div class="field"><label class="lbl" for="rP">รหัสผ่าน</label><input id="rP" name="password" type="password" class="inp" autocomplete="new-password" placeholder="อย่างน้อย 8 ตัวอักษร" required></div>
     <div class="field"><label class="lbl" for="rP2">ยืนยันรหัสผ่าน</label><input id="rP2" name="password2" type="password" class="inp" autocomplete="new-password" required></div>
     <div class="banner info">${I.info}<div>บัญชีใหม่จะได้สิทธิ์ <b>User</b> ใช้เมนูบันทึกและตรวจสอบได้ทันที Admin สามารถปรับสิทธิ์ภายหลัง</div></div>
@@ -518,7 +550,7 @@ const GUIDE = [
   {c:"var(--brand)", bg:"var(--brand-soft)", ic:"truckBig", t:"ยินดีต้อนรับ", d:"แอปนี้ใช้บันทึกจำนวน MHE ที่ขึ้น–ลงรถ แยกรายสาขา",
    li:["<b>Pallet · Totebox · Rollcage · Box</b>","ใช้บนมือถือได้เลย ไม่ต้องติดตั้ง","ทำตาม 4 ขั้นง่ายๆ ในหน้าถัดไป"]},
   {c:"#2C3A73", bg:"var(--blue-bg)", ic:"users", t:"สมัคร และเข้าสู่ระบบ", d:"ทำครั้งแรกครั้งเดียว",
-   li:["สมัครด้วย <b>ชื่อ · รหัสพนักงาน · อีเมลบริษัท · Cost Center</b>","ครั้งต่อไป พิมพ์แค่ <b>ชื่อหน้าอีเมล</b> หรือ <b>รหัสพนักงาน</b>","ติ๊ก “จดจำการเข้าสู่ระบบ” จะไม่ต้องเข้าใหม่ทุกวัน"]},
+   li:["สมัครด้วย <b>ชื่อ · รหัสพนักงาน · Cost Center</b> (ไม่มี Cost Center ของตัวเอง? เลือก <b>+ เพิ่มใหม่</b>)","ครั้งต่อไป ใช้ <b>รหัสพนักงาน</b> + รหัสผ่าน เข้าสู่ระบบ","ติ๊ก “จดจำการเข้าสู่ระบบ” จะไม่ต้องเข้าใหม่ทุกวัน"]},
   {c:"var(--warn-ink)", bg:"var(--warn-bg)", ic:"truckBack", t:"① เลือกขา", d:"เลือกว่ากำลังบันทึกเที่ยวไหน",
    li:["<b>ขากลับเข้าคลัง</b> = งานหลักของ LP","<b>ขาออกจากคลัง</b> = ข้อมูลตั้งต้น ใช้เทียบตอนรถกลับ"]},
   {c:"var(--brand)", bg:"var(--brand-soft)", ic:"search", t:"② พิมพ์เลข Trip / Load", d:"พิมพ์จากตัวแรก รายการจะกรองให้เอง",
@@ -689,6 +721,7 @@ async function openEntry(doc){
   }));
   // saved rows show 0 as blank for readability? keep exact saved numbers
   S.entry = { ...d, rows, door: d.record ? d.record.door_no : null, filter: "", dirty: false,
+              received: d.record && d.record.received_at ? bkkLocal(new Date(d.record.received_at)) : bkkLocal(),
               base_updated_at: d.record ? d.record.updated_at : null };
   // draft restore
   const dk = draftKey(d.doc_no, leg), raw = lsGet(dk);
@@ -696,7 +729,7 @@ async function openEntry(doc){
     try{
       const dr = JSON.parse(raw);
       if(dr.base === S.entry.base_updated_at){
-        S.entry.door = dr.door; S.entry.rows = dr.rows; S.entry.dirty = true;
+        S.entry.door = dr.door; S.entry.rows = dr.rows; S.entry.dirty = true; if(dr.received) S.entry.received = dr.received;
         setTimeout(()=>toast("กู้คืนข้อมูลที่ยังไม่ได้บันทึกจากเครื่องนี้แล้ว"), 300);
       } else lsDel(dk);
     }catch(e){ lsDel(dk); }
@@ -706,7 +739,7 @@ async function openEntry(doc){
 function draftKey(doc, leg){ return `mhe_draft_${S.user.id}_${keyOf(doc)}_${leg}`; }
 const saveDraft = debounce(() => {
   const E = S.entry; if(!E || !E.dirty) return;
-  lsSet(draftKey(E.doc_no, E.leg), JSON.stringify({base: E.base_updated_at, door: E.door, rows: E.rows, at: Date.now()}));
+  lsSet(draftKey(E.doc_no, E.leg), JSON.stringify({base: E.base_updated_at, door: E.door, received: E.received, rows: E.rows, at: Date.now()}));
 }, 400);
 function markDirty(){ S.entry.dirty = true; saveDraft(); }
 
@@ -721,7 +754,7 @@ function vEntry(){
   if(!E.in_plan && !E.has_baseline && !E.record) banners.push(`<div class="banner grey">${I.info}<div>ไม่พบ Trip นี้ในแผนโหลด — กด <b>เพิ่มสาขา</b> ด้านล่างเพื่อกรอก</div></div>`);
   const visible = E.rows.map((r,i)=>[r,i]).filter(([r]) => rowVisible(r, E.filter));
   return `${hdrBack("กรอกจำนวน", "", "back", `<div style="padding-right:6px">${legPill(E.leg)}</div>`)}
-  <div style="padding:12px 16px 0">${card}${tripStrip(E)}</div>
+  <div style="padding:12px 16px 0">${card}${tripStrip(E)}${recvRow(E)}</div>
   <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center;position:sticky;top:70px;z-index:15;background:var(--bg);padding-bottom:6px">
     <div class="search" style="flex:1;border:1.5px solid var(--brand);background:#fff;height:46px">${I.filter}
       <input id="fStore" value="${esc(E.filter)}" placeholder="กรองเลขสาขา เช่น 2013" inputmode="numeric" data-in="filter" autocomplete="off" aria-label="กรองเลขสาขา">
@@ -747,6 +780,13 @@ function tripCard(E){
     <button class="doorbtn ${E.door?"":"empty"}" data-act="door" aria-label="ระบุ Door No."><span class="k">DOOR</span><span class="v">${E.door ?? "?"}</span>
       <span style="font-size:10px;color:var(--muted)">${E.door?"แตะเพื่อแก้":"แตะเพื่อใส่"}</span></button>
   </div>`;
+}
+// วันเวลาที่รับสินค้า — defaults to now for a new record
+function recvRow(E){
+  const max = bkkLocal(new Date(Date.now() + 86400000));
+  return `<div class="recvrow"><div class="rl">${I.clock}<span>วันเวลารับสินค้า</span></div>
+    <input type="datetime-local" class="inp mono" id="recvAt" value="${esc(E.received||"")}" max="${max}" data-in="recv" aria-label="วันเวลาที่รับสินค้า">
+    <button type="button" class="btn sm ghost" data-act="recv-now">ตอนนี้</button></div>`;
 }
 // compact one-line card shown while the numpad is open on a quantity cell
 function tripStrip(E){
@@ -1038,6 +1078,8 @@ function confirmSheet(){
   if(!entered.length){ toast("ยังไม่ได้กรอกข้อมูลสาขาใดเลย", true); return; }
   // no Door yet → open the Door numpad; its "ไปหน้าสรุป ›" key comes straight back here
   if(!E.door){ editDoor(true); return; }
+  if(!E.received){ toast("กรุณาระบุวันเวลารับสินค้า", true); const i = $("#recvAt"); if(i){ i.scrollIntoView({block:"center"}); i.focus(); } return; }
+  if(new Date(fromBkkLocal(E.received)) > new Date(Date.now() + 86400000)){ toast("วันเวลารับสินค้าต้องไม่เกินวันพรุ่งนี้", true); return; }
   npClose();
   const notEntered = E.rows.filter(r => !rowEntered(r));
   const deleted = E.rows.filter(r => r.deleted);
@@ -1069,6 +1111,7 @@ function confirmSheet(){
         <div><div class="hint">Trip / รถ</div><div style="font-weight:600">${esc(E.trip_no||"-")} · ${esc(E.truck_id||"-")}${E.truck_type?` · ${esc(E.truck_type)}`:""}</div></div>
         <div><div class="hint">Door</div><div class="mono" style="font-weight:700;font-size:15px">${E.door}</div></div>
         <div><div class="hint">สถานะหลังบันทึก</div><div>${statusPill(complete)}</div></div>
+        <div style="grid-column:1/-1"><div class="hint">วันเวลารับสินค้า</div><div class="mono" style="font-weight:700;font-size:15px">${fmtDTY(fromBkkLocal(E.received))}</div></div>
       </div></div>
     <div class="sb">
       ${warn.join("")}
@@ -1085,7 +1128,7 @@ function confirmSheet(){
     const b = e.currentTarget; b.disabled = true; b.innerHTML = "กำลังบันทึก…";
     try{
       const res = await api("/api/records", {method:"POST", body:{
-        doc_no: E.doc_no, leg: E.leg, door_no: E.door, base_updated_at: E.base_updated_at,
+        doc_no: E.doc_no, leg: E.leg, door_no: E.door, received_at: fromBkkLocal(E.received), base_updated_at: E.base_updated_at,
         lines: E.rows.map(r => ({store_code:r.store_code, store_name:r.store_name, in_plan:r.in_plan, deleted:r.deleted,
           entered: rowEntered(r), comment:r.comment, ...Object.fromEntries(QK.map(k => [k, num(r.vals[k])]))})),
       }});
@@ -1113,7 +1156,7 @@ function vReview(){
   const list = R.items === null ? `<div class="spin"></div>` : !R.items.length ? `<div class="empty">ไม่มีรายการในวันที่เลือก</div>` :
     R.items.map(r => `<button class="item" data-act="open-rec" data-id="${r.id}">
       <div class="row between"><div class="mono" style="font-size:16px;font-weight:700">${esc(r.doc_no)}</div>${statusPill(r.complete)}</div>
-      <div class="hint">${r.leg==="ret"?"ขากลับ":"ขาออก"} · ${r.trip_no?`Trip ${esc(r.trip_no)} · `:""}${r.truck_id?`${esc(r.truck_id)}${r.truck_type?` (${esc(r.truck_type)})`:""} · `:""}Door ${r.door_no ?? "-"} · ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at).slice(6)}${r.created_at!==r.updated_at?" (แก้ไข)":""}</div>
+      <div class="hint">${r.leg==="ret"?"ขากลับ":"ขาออก"} · ${r.trip_no?`Trip ${esc(r.trip_no)} · `:""}${r.truck_id?`${esc(r.truck_id)}${r.truck_type?` (${esc(r.truck_type)})`:""} · `:""}Door ${r.door_no ?? "-"}${r.received_at?` · รับ ${fmtDT(r.received_at)}`:""} · ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at).slice(6)}${r.created_at!==r.updated_at?" (แก้ไข)":""}</div>
       <div class="row mono" style="gap:14px;font-size:13px;color:var(--ink2)"><span>P ${r.pallet}</span><span>TB ${r.totebox}</span><span>RC ${r.rollcage}</span><span>B ${r.box}</span>
       ${!r.complete?`<span style="margin-left:auto;font-family:'IBM Plex Sans Thai';color:var(--warn-ink)">${r.entered_stores}/${r.expected_stores} สาขา</span>`:""}</div></button>`).join("");
   const c = R.counts || {all:"",complete:"",incomplete:""};
@@ -1161,6 +1204,7 @@ function vDetail(){
       `<div style="padding-right:6px">${statusPill(r.complete)}</div>`)}
   <div class="main">
     ${!r.complete?`<div class="banner warn">${I.warn}<div>กรอกแล้ว ${r.entered_stores} จาก ${r.expected_stores} สาขา</div></div>`:""}
+    <div class="row" style="gap:8px;font-size:14px"><span class="hint">วันเวลารับสินค้า</span><b class="mono">${r.received_at ? fmtDTY(r.received_at) : "-"}</b></div>
     <div class="tbl"><div class="tr h"><div style="text-align:left">สาขา</div><div>P</div><div>TB</div><div>RC</div><div>B</div></div>${rows}
       <div class="tr total"><div class="st" style="font-weight:700">รวม</div>${QK.map(k=>`<div class="q"><div class="v">${t[k]}</div></div>`).join("")}</div></div>
     <div class="hint">รถ ${esc(r.truck_id||"-")}${r.truck_type?` · ${esc(r.truck_type)}`:""}${r.transporter?` · ${esc(r.transporter)}`:""} · สร้างโดย ${esc(r.created_by||"-")} ${fmtDT(r.created_at)} · แก้ไขล่าสุด ${esc(r.updated_by||"-")} ${fmtDT(r.updated_at)}</div>
@@ -1438,7 +1482,7 @@ function vUsers(){
   const U = S.users;
   if(!U) return `${hdrMain("จัดการผู้ใช้")}<div style="padding:14px 16px 0">${usersTabs("users")}</div><div class="spin"></div>${nav("users")}`;
   const q = (U.q||"").toLowerCase();
-  const items = U.items.filter(u => !q || u.display_name.toLowerCase().includes(q) || u.email.includes(q) || (u.cost_center||"").toLowerCase().includes(q) || (u.employee_id||"").toLowerCase().includes(q));
+  const items = U.items.filter(u => !q || u.display_name.toLowerCase().includes(q) || (u.email||"").includes(q) || (u.cost_center||"").toLowerCase().includes(q) || (u.employee_id||"").toLowerCase().includes(q));
   const admins = U.items.filter(u=>u.role==="admin").length;
   const list = items.map(u => `<div class="item" style="flex-direction:row;align-items:center;gap:12px;${u.active?"":"opacity:.55"}">
       <div class="avatar" style="${u.role==="admin"?"":"background:var(--ok-bg);color:var(--ok-ink)"}">${esc(initials(u.display_name))}</div>
@@ -1451,7 +1495,7 @@ function vUsers(){
   return `${hdrMain("จัดการผู้ใช้")}
   <div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid var(--line)">
     ${usersTabs("users")}
-    <div class="search">${I.search}<input id="usQ" value="${esc(U.q||"")}" placeholder="ค้นหาชื่อ อีเมล รหัสพนักงาน หรือ Cost Center" data-in="usq" autocomplete="off"></div>
+    <div class="search">${I.search}<input id="usQ" value="${esc(U.q||"")}" placeholder="ค้นหาชื่อ รหัสพนักงาน หรือ Cost Center" data-in="usq" autocomplete="off"></div>
     <div class="hint">ทั้งหมด ${U.items.length} คน · Admin ${admins} · User ${U.items.length-admins}</div></div>
   <div class="main"><div class="list grid">${list || `<div class="empty">ไม่พบผู้ใช้</div>`}</div></div>${nav("users")}`;
 }
@@ -1507,7 +1551,7 @@ function userMenu(id){
   const u = S.users.items.find(x => x.id === id); if(!u) return;
   const self = u.id === S.user.id;
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="ตัวเลือกผู้ใช้"><div class="sh"><div class="grab"></div>
-      <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${esc(u.email)}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div>
+      <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)}`:""}${u.email?` · ${esc(u.email)}`:""}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
       ${u.role==="admin" ? `<button class="btn ghost" data-u="demote">ลดสิทธิ์เป็น User</button>` : `<button class="btn primary" data-u="promote">ตั้งเป็น Admin</button>`}
       <button class="btn ghost" data-u="emp">แก้ไขรหัสพนักงาน</button>
@@ -1538,7 +1582,7 @@ function userMenu(id){
       } else if(a === "reset"){
         const ok = await ask({title:`รีเซ็ตรหัสผ่าน ${u.display_name}?`, body:"ระบบจะสร้างรหัสผ่านชั่วคราว ผู้ใช้ต้องตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบ", ok:"รีเซ็ต"}); if(!ok) return;
         const r = await api(`/api/admin/users/${id}/reset-password`, {method:"POST"});
-        await ask({title:"รหัสผ่านชั่วคราว", body:`ส่งให้ ${esc(r.email)}<br><div class="mono" style="font-size:24px;font-weight:700;padding:12px;background:var(--bg);border-radius:10px;text-align:center;margin-top:8px;user-select:all">${esc(r.temp_password)}</div><div class="hint" style="margin-top:6px">รหัสนี้จะแสดงครั้งเดียว</div>`, ok:"ปิด", cancel:null});
+        await ask({title:"รหัสผ่านชั่วคราว", body:`ส่งให้ ${esc(r.name)}${r.employee_id?` (#${esc(r.employee_id)})`:""}<br><div class="mono" style="font-size:24px;font-weight:700;padding:12px;background:var(--bg);border-radius:10px;text-align:center;margin-top:8px;user-select:all">${esc(r.temp_password)}</div><div class="hint" style="margin-top:6px">รหัสนี้จะแสดงครั้งเดียว</div>`, ok:"ปิด", cancel:null});
         if(self){ logout(); return; }
       }
       toast("บันทึกแล้ว"); S.users = null; render();
@@ -1551,14 +1595,16 @@ function accountSheet(){
   const u = S.user;
   const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="บัญชีผู้ใช้"><div class="sh"><div class="grab"></div>
     <div class="row" style="gap:12px"><div class="avatar" style="width:44px;height:44px;border-radius:22px">${esc(initials(u.display_name))}</div>
-    <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${esc(u.email)} · ${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
+    <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
       <button class="btn ghost" data-a="guide">วิธีใช้งาน</button>
+      <button class="btn ghost" data-a="cc">เปลี่ยน Cost Center</button>
       <button class="btn ghost" data-a="pw">เปลี่ยนรหัสผ่าน</button>
       <button class="btn danger" data-a="out">ออกจากระบบ</button>
       <div class="hint mono" style="text-align:center">${VERSION}</div></div></div>`);
   $("[data-a=out]", ov).onclick = () => { closeLayer(); logout(); };
   $("[data-a=guide]", ov).onclick = () => { closeLayer(); openGuide(); };
+  $("[data-a=cc]", ov).onclick = () => { closeLayer(); myCcSheet(); };
   $("[data-a=pw]", ov).onclick = async () => {
     closeLayer();
     const cur = await ask({title:"รหัสผ่านปัจจุบัน", input:{type:"password", max:128}, ok:"ถัดไป"}); if(cur === null) return;
@@ -1566,6 +1612,15 @@ function accountSheet(){
     try{ const r = await api("/api/me/password", {method:"POST", body:{current:cur, new:nw}}); setSession(r); toast("เปลี่ยนรหัสผ่านแล้ว"); }
     catch(e){ toast(e.message, true); }
   };
+}
+
+async function myCcSheet(){
+  try{ S.meta = await api("/api/meta"); }catch(e){}
+  const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="เปลี่ยน Cost Center"><div class="sh"><div class="grab"></div>
+    <div style="font-size:18px;font-weight:700">Cost Center ของฉัน</div></div>
+    <form class="sb" data-form="mycc" novalidate style="padding-bottom:calc(20px + var(--safe-b))">${ccPicker(S.meta.cost_centers||[], S.user.cost_center)}
+      <button class="btn primary" type="submit">บันทึก</button><button class="btn ghost" type="button" data-close>ยกเลิก</button></form></div>`);
+  $("[data-close]", ov).onclick = closeLayer;
 }
 
 // ================================================================== session
@@ -1589,18 +1644,22 @@ document.addEventListener("submit", async e => {
   const btn = f.querySelector("button[type=submit]"); const txt = btn.innerHTML; btn.disabled = true; btn.innerHTML = "กำลังดำเนินการ…";
   try{
     if(f.dataset.form === "login"){
-      if(!fd.email || !fd.password) throw new Error("กรุณากรอกอีเมล/รหัสพนักงาน และรหัสผ่าน");
+      if(!fd.email || !fd.password) throw new Error("กรุณากรอกรหัสพนักงาน และรหัสผ่าน");
       setSession(await api("/api/auth/login", {method:"POST", body:{email:fd.email, password:fd.password, remember:!!fd.remember}, noLogout:true}));
       afterLogin(); return;
     }
     if(f.dataset.form === "register"){
       if(!fd.display_name.trim()) throw new Error("กรุณากรอกชื่อที่แสดง");
       if(!/^[A-Za-z0-9-]{3,20}$/.test((fd.employee_id||"").trim())) throw new Error("รหัสพนักงานใช้ตัวอักษร/ตัวเลข 3–20 ตัว");
-      if((S.meta.cost_centers||[]).length && !fd.cost_center) throw new Error("กรุณาเลือก Cost Center");
+      const cc = ccFromForm(fd);
       if(fd.password.length < 8) throw new Error("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
       if(fd.password !== fd.password2) throw new Error("ยืนยันรหัสผ่านไม่ตรงกัน");
-      setSession(await api("/api/auth/register", {method:"POST", body:{email:fd.email, display_name:fd.display_name, employee_id:fd.employee_id.trim(), cost_center:fd.cost_center||"", password:fd.password}, noLogout:true}));
+      setSession(await api("/api/auth/register", {method:"POST", body:{display_name:fd.display_name, employee_id:fd.employee_id.trim(), ...cc, password:fd.password}, noLogout:true}));
       toast("สมัครใช้งานเรียบร้อย"); afterLogin(); return;
+    }
+    if(f.dataset.form === "mycc"){
+      const r = await api("/api/me/cost-center", {method:"PUT", body: ccFromForm(fd)});
+      S.user = r.user; closeLayer(); toast("บันทึก Cost Center แล้ว"); render(); return;
     }
     if(f.dataset.form === "changepw"){
       if(fd.new.length < 8) throw new Error("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
@@ -1637,6 +1696,7 @@ const A = {
   "open-doc": el => { const h = S.docHits[+el.dataset.i]; openEntry(h.doc_no); },
   "open-new": () => { const q = S.docQ.trim().toUpperCase(); if(q.length > 40){ toast("Document No. ยาวเกินไป", true); return; } openEntry(q); },
   "door": () => editDoor(),
+  "recv-now": () => { const v = bkkLocal(); if(S.entry.received !== v){ S.entry.received = v; markDirty(); } const i = $("#recvAt"); if(i) i.value = v; },
   "cell": el => npSelect(+el.dataset.i, el.dataset.k),
   "filter-clear": () => { S.entry.filter = ""; const i = $("#fStore"); i.value = ""; rerenderRows(); const b = $("[data-act=filter-clear]"); if(b) b.remove(); i.focus(); },
   "comment": el => editComment(+el.dataset.i),
@@ -1682,7 +1742,8 @@ document.addEventListener("click", e => {
 
 document.addEventListener("input", e => {
   const el = e.target, k = el.dataset && el.dataset.in; if(!k) return;
-  if(k === "regemail"){ const sf = $("#rEsfx"); if(sf) sf.style.display = el.value.includes("@") ? "none" : ""; return; }
+  if(k === "recv"){ if(S.entry && el.value !== S.entry.received){ S.entry.received = el.value; markDirty(); } return; }
+  if(k === "ccpick"){ const n = el.closest("form, .sb").querySelector("#ccNew"); if(n){ n.style.display = el.value === CC_NEW ? "" : "none"; if(el.value === CC_NEW) $("input", n).focus(); } return; }
   if(k === "docq"){ S.docQ = el.value; S.docBusy = true; renderDocRes(); docSearch(); return; }
   if(k === "filter"){ S.entry.filter = el.value.trim(); rerenderRows();
     const s = el.closest(".search"), b = $("[data-act=filter-clear]", s);

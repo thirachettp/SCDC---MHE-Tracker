@@ -1,2 +1,2 @@
 # Build stamp shown in the app. Format: TTLOD.yymmdd.hhmm (Asia/Bangkok)
-VERSION = "TTLOD.261014.1145"
+VERSION = "TTLOD.261030.0900"

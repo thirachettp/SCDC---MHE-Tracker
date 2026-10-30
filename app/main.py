@@ -75,10 +75,12 @@ def boot():
             else:
                 pw = auth.random_password(14)
                 c.execute(
-                    """INSERT INTO users(email, display_name, password_hash, role, must_change_password)
-                       VALUES (%s, 'Admin', %s, 'admin', TRUE)""", (email, auth.hash_password(pw)))
+                    """INSERT INTO users(email, display_name, employee_id, password_hash, role, must_change_password)
+                       VALUES (%s, 'Admin', %s, %s, 'admin', TRUE)""",
+                    (email, "" if c.execute("SELECT 1 FROM users WHERE lower(employee_id) = 'admin'").fetchone()
+                     else "ADMIN", auth.hash_password(pw)))
                 # printed ONCE, only on the very first boot against an empty database
-                log.warning("BOOTSTRAP ADMIN CREATED  email=%s  password=%s  (change it after first login)",
+                log.warning("BOOTSTRAP ADMIN CREATED  login=ADMIN (or %s)  password=%s  (change it after first login)",
                             email, pw)
     _booted = True
 
@@ -98,7 +100,7 @@ def _cc_name(c, code):
 
 
 def _user_out(u, c):
-    return {"id": u["id"], "email": u["email"], "display_name": u["display_name"],
+    return {"id": u["id"], "email": u["email"] or "", "display_name": u["display_name"],
             "employee_id": u.get("employee_id", ""),
             "cost_center": u["cost_center"], "cost_center_name": _cc_name(c, u["cost_center"]),
             "role": u["role"], "active": u["active"], "must_change_password": u["must_change_password"]}
@@ -114,6 +116,29 @@ def _valid_cc(c, code, *, required):
         return ""
     if not c.execute("SELECT 1 FROM cost_centers WHERE code = %s AND active", (code,)).fetchone():
         raise AppError(400, f"ไม่พบ Cost Center {code} ในรายการ")
+    return code
+
+
+CC_CODE_RE = re.compile(r"^[A-Za-z0-9-]{2,20}$")
+
+
+def _cc_or_create(c, code, name):
+    """Pick an existing Cost Center, or add a new one (any user may add; admins can rename/close later)."""
+    code = (code or "").strip().upper()
+    name = (name or "").strip()[:80]
+    if not code:
+        raise AppError(400, "กรุณาเลือกหรือเพิ่ม Cost Center")
+    r = c.execute("SELECT code, active FROM cost_centers WHERE upper(code) = %s", (code,)).fetchone()
+    if r:
+        if not r["active"]:
+            raise AppError(400, f"Cost Center {r['code']} ถูกปิดใช้งาน กรุณาติดต่อ Admin")
+        return r["code"]
+    if not CC_CODE_RE.match(code):
+        raise AppError(400, "รหัส Cost Center ใช้ตัวอักษร/ตัวเลข 2–20 ตัว")
+    if not name:
+        raise AppError(400, f"กรุณาใส่ชื่อ Cost Center {code}")
+    c.execute("INSERT INTO cost_centers(code, name) VALUES (%s,%s) ON CONFLICT DO NOTHING", (code, name))
+    log.info("cost center %s (%s) added by user", code, name)
     return code
 
 
@@ -141,10 +166,10 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class RegisterIn(BaseModel):
-    email: str
     display_name: str
     employee_id: str = ""
     cost_center: str = ""
+    cost_center_name: str = ""      # set when the user adds a new Cost Center
     password: str
 
 
@@ -190,22 +215,16 @@ def _check_password(pw: str):
 
 @app.post("/api/auth/register")
 def register(body: RegisterIn, c=Depends(db, scope="function")):
-    email = _full_email(body.email)
     name = body.display_name.strip()
-    cc = body.cost_center.strip()
-    if not EMAIL_RE.match(email):
-        raise AppError(400, "รูปแบบอีเมลไม่ถูกต้อง")
     if not name or len(name) > 60:
         raise AppError(400, "กรุณากรอกชื่อที่แสดง (ไม่เกิน 60 ตัวอักษร)")
-    cc = _valid_cc(c, cc, required=True)
     emp = _valid_emp(c, body.employee_id)
     _check_password(body.password)
-    if c.execute("SELECT 1 FROM users WHERE email = %s", (email,)).fetchone():
-        raise AppError(409, "อีเมลนี้ถูกใช้สมัครแล้ว")
+    cc = _cc_or_create(c, body.cost_center, body.cost_center_name)
     u = c.execute(
         """INSERT INTO users(email, display_name, employee_id, cost_center, password_hash)
-           VALUES (%s,%s,%s,%s,%s) RETURNING *""",
-        (email, name, emp, cc, auth.hash_password(body.password))).fetchone()
+           VALUES (NULL,%s,%s,%s,%s) RETURNING *""",
+        (name, emp, cc, auth.hash_password(body.password))).fetchone()
     return {"token": auth.make_token(u["id"], u["token_version"]), "user": _user_out(u, c)}
 
 
@@ -213,13 +232,13 @@ def register(body: RegisterIn, c=Depends(db, scope="function")):
 def login(body: LoginIn, c=Depends(db, scope="function")):
     ident = body.email.strip()
     u = None
-    if ident and "@" not in ident:     # employee ID first, then short e-mail
+    if ident and "@" not in ident:     # employee ID (older accounts may still use their e-mail)
         u = c.execute("SELECT * FROM users WHERE employee_id <> '' AND lower(employee_id) = lower(%s)",
                       (ident,)).fetchone()
     if not u:
         u = c.execute("SELECT * FROM users WHERE email = %s", (_full_email(ident),)).fetchone()
     if not u or not auth.verify_password(body.password, u["password_hash"]):
-        raise AppError(401, "อีเมล/รหัสพนักงาน หรือรหัสผ่านไม่ถูกต้อง")
+        raise AppError(401, "รหัสพนักงาน หรือรหัสผ่านไม่ถูกต้อง")
     if not u["active"]:
         raise AppError(403, "บัญชีนี้ถูกปิดการใช้งาน กรุณาติดต่อ Admin")
     c.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (u["id"],))
@@ -241,6 +260,19 @@ def change_password(body: PasswordIn, u=Depends(current_user), c=Depends(db, sco
                token_version = token_version + 1 WHERE id = %s RETURNING *""",
         (auth.hash_password(body.new), u["id"])).fetchone()
     return {"token": auth.make_token(r["id"], r["token_version"]), "user": _user_out(r, c)}
+
+
+class MyCostCenterIn(BaseModel):
+    cost_center: str
+    cost_center_name: str = ""
+
+
+@app.put("/api/me/cost-center")
+def my_cost_center(body: MyCostCenterIn, u=Depends(current_user), c=Depends(db, scope="function")):
+    """A user can switch to — or add — their own Cost Center."""
+    cc = _cc_or_create(c, body.cost_center, body.cost_center_name)
+    r = c.execute("UPDATE users SET cost_center = %s WHERE id = %s RETURNING *", (cc, u["id"])).fetchone()
+    return {"user": _user_out(r, c)}
 
 
 @app.post("/api/me/logout-all")
@@ -427,6 +459,7 @@ def doc_detail(doc: str, leg: str = Query(..., pattern="^(out|ret)$"),
         "leg": leg,
         "record": None if not rec else {
             "id": rec["id"], "door_no": rec["door_no"], "complete": rec["complete"],
+            "received_at": rec["received_at"].isoformat() if rec.get("received_at") else None,
             "updated_at": rec["updated_at"].isoformat(), "updated_by": rec["updated_by_name"],
             "created_by": rec["created_by_name"],
         },
@@ -466,6 +499,7 @@ class RecordIn(BaseModel):
     doc_no: str
     leg: str = Field(pattern="^(out|ret)$")
     door_no: Optional[int] = None
+    received_at: Optional[str] = None       # วันเวลาที่รับสินค้า (ISO 8601, with offset)
     base_updated_at: Optional[str] = None   # optimistic concurrency
     lines: List[LineIn]
 
@@ -499,6 +533,8 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
         raise AppError(400, "Document No. ไม่ถูกต้อง")
     if body.door_no is None or not (1 <= body.door_no <= 999):
         raise AppError(400, "กรุณาระบุ Door No. (1–999)")
+
+    received = _parse_received(body.received_at)
 
     lines, order = {}, []
     for l in body.lines:
@@ -538,16 +574,16 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
     ttype = (head and head["truck_type"]) or (b and b["truck_type"]) or (old and old["truck_type"]) or ""
     tport = (head and head["transporter"]) or (b and b["transporter"]) or (old and old["transporter"]) or ""
     fields = (body.door_no, bool(plan), complete, len(expected), len(stored), u["id"],
-              load_no, parsing.doc_key(load_no), trip_no, parsing.doc_key(trip_no), truck, ttype, tport)
+              load_no, parsing.doc_key(load_no), trip_no, parsing.doc_key(trip_no), truck, ttype, tport, received)
 
     if old:
         old_lines = {l["store_code"]: l for l in c.execute(
             "SELECT * FROM record_lines WHERE record_id = %s", (old["id"],)).fetchall()}
-        changes = _diff(old, old_lines, body.door_no, stored)
+        changes = _diff(old, old_lines, body.door_no, stored, received)
         rec = c.execute(
             """UPDATE trip_records SET door_no=%s, in_plan=%s, complete=%s, expected_stores=%s,
                    entered_stores=%s, updated_by=%s, updated_at=now(), load_no=%s, load_key=%s,
-                   trip_no=%s, trip_key=%s, truck_id=%s, truck_type=%s, transporter=%s
+                   trip_no=%s, trip_key=%s, truck_id=%s, truck_type=%s, transporter=%s, received_at=%s
                WHERE id=%s RETURNING *""", fields + (old["id"],)).fetchone()
         c.execute("DELETE FROM record_lines WHERE record_id = %s", (rec["id"],))
         action = "update"
@@ -555,13 +591,13 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
         rec = c.execute(
             """INSERT INTO trip_records(door_no, in_plan, complete, expected_stores, entered_stores,
                    updated_by, load_no, load_key, trip_no, trip_key, truck_id, truck_type, transporter,
-                   created_by, doc_no, doc_key, leg)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   received_at, created_by, doc_no, doc_key, leg)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (doc_key, leg) DO NOTHING RETURNING *""",
             fields + (u["id"], doc, key, body.leg)).fetchone()
         if not rec:   # someone else created it a moment ago
             raise AppError(409, "Trip นี้เพิ่งถูกบันทึกโดยผู้อื่น กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก")
-        changes = [f"บันทึกครั้งแรก · Door {body.door_no} · {len(stored)} สาขา"]
+        changes = [f"บันทึกครั้งแรก · Door {body.door_no} · รับสินค้า {_fmt_dt(received)} · {len(stored)} สาขา"]
         action = "create"
 
     with c.cursor() as cur:
@@ -581,10 +617,34 @@ def save_record(body: RecordIn, u=Depends(current_user), c=Depends(db, scope="fu
             "updated_at": rec["updated_at"].isoformat(), "changed": bool(changes)}
 
 
-def _diff(old, old_lines, door, new_lines):
+def _parse_received(s):
+    """Goods-received time. Blank → now. Must carry a date; not more than a day ahead."""
+    now = datetime.now(timezone.utc)
+    if not (s or "").strip():
+        return now
+    try:
+        v = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise AppError(400, "รูปแบบวันเวลารับสินค้าไม่ถูกต้อง")
+    if v.tzinfo is None:
+        v = v.replace(tzinfo=BKK)
+    if v > now + timedelta(days=1):
+        raise AppError(400, "วันเวลารับสินค้าต้องไม่เกินวันพรุ่งนี้")
+    if v < now - timedelta(days=366):
+        raise AppError(400, "วันเวลารับสินค้าเก่าเกินไป")
+    return v.replace(second=0, microsecond=0)
+
+
+def _fmt_dt(v):
+    return v.astimezone(BKK).strftime("%d/%m/%Y %H:%M") if v else "-"
+
+
+def _diff(old, old_lines, door, new_lines, received=None):
     ch = []
     if old["door_no"] != door:
         ch.append(f"Door {old['door_no']} → {door}")
+    if received and old.get("received_at") != received:
+        ch.append(f"วันเวลารับสินค้า {_fmt_dt(old.get('received_at'))} → {_fmt_dt(received)}")
     for code, n in new_lines.items():
         o = old_lines.get(code)
         if not o:
@@ -635,7 +695,7 @@ def _parse_date(s, default):
 
 
 LIST_SQL = """
-SELECT r.id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.truck_type, r.transporter, r.door_no, r.complete, r.in_plan,
+SELECT r.id, r.doc_no, r.leg, r.trip_no, r.truck_id, r.truck_type, r.transporter, r.door_no, r.complete, r.in_plan, r.received_at,
        r.expected_stores, r.entered_stores, r.created_at, r.updated_at,
        cu.display_name AS created_by, uu.display_name AS updated_by,
        COALESCE(SUM(l.pallet),0)::int pallet, COALESCE(SUM(l.totebox),0)::int totebox,
@@ -667,8 +727,9 @@ def list_records(date_from: str = "", date_to: str = "", q: str = "", status: st
 
 def _rec_out(r):
     d = dict(r)
-    for k in ("created_at", "updated_at"):
-        d[k] = r[k].isoformat()
+    for k in ("created_at", "updated_at", "received_at"):
+        if k in d:
+            d[k] = r[k].isoformat() if r[k] else None
     return d
 
 
@@ -680,7 +741,7 @@ def export_records(date_from: str = "", date_to: str = "", q: str = "", status: 
     df, dt = _parse_date(date_from, today), _parse_date(date_to, today)
     where, args = _list_filters(df, dt, q, status, leg)
     rows = c.execute(
-        f"""SELECT r.updated_at, r.created_at, r.doc_no, r.leg, r.trip_no, r.truck_id, r.door_no,
+        f"""SELECT r.updated_at, r.created_at, r.received_at, r.doc_no, r.leg, r.trip_no, r.truck_id, r.door_no,
                    r.complete, cu.display_name created_by, uu.display_name updated_by,
                    uu.employee_id, uu.cost_center, cc.name AS cost_center_name, r.truck_type, r.transporter, l.store_code, l.store_name, l.in_plan, l.deleted,
                    l.pallet, l.totebox, l.rollcage, l.box, l.comment
@@ -691,11 +752,11 @@ def export_records(date_from: str = "", date_to: str = "", q: str = "", status: 
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Records"
-    ws.append(["Created", "Updated", "Document No.", "ขา", "Trip No.", "Truck", "Door", "สถานะ",
+    ws.append(["Created", "Updated", "วันเวลารับสินค้า", "Document No.", "ขา", "Trip No.", "Truck", "Door", "สถานะ",
                "ผู้บันทึก", "แก้ไขล่าสุดโดย", "รหัสพนักงาน", "Cost Center", "Cost Center Name", "ประเภทรถ", "Transporter", "Store Code", "Store Name", "ในแผน",
                "ลบ (=0)", "Pallet", "Totebox", "Rollcage", "Box", "Comment"])
     for r in rows:
-        ws.append([_xl_dt(r["created_at"]), _xl_dt(r["updated_at"]), r["doc_no"],
+        ws.append([_xl_dt(r["created_at"]), _xl_dt(r["updated_at"]), _xl_dt(r["received_at"]), r["doc_no"],
                    "ขากลับ" if r["leg"] == "ret" else "ขาออก", r["trip_no"], r["truck_id"], r["door_no"],
                    "ครบ" if r["complete"] else "ยังไม่ครบ", r["created_by"], r["updated_by"], r["employee_id"], r["cost_center"], r["cost_center_name"], r["truck_type"], r["transporter"],
                    r["store_code"], r["store_name"], "Y" if r["in_plan"] else "N", "Y" if r["deleted"] else "",
@@ -928,11 +989,11 @@ def reset_password(uid: int, u=Depends(admin_user), c=Depends(db, scope="functio
     pw = auth.random_password(10)
     r = c.execute(
         """UPDATE users SET password_hash = %s, must_change_password = TRUE,
-               token_version = token_version + 1 WHERE id = %s RETURNING email""",
+               token_version = token_version + 1 WHERE id = %s RETURNING display_name, employee_id, email""",
         (auth.hash_password(pw), uid)).fetchone()
     if not r:
         raise AppError(404, "ไม่พบผู้ใช้")
-    return {"email": r["email"], "temp_password": pw}
+    return {"name": r["display_name"], "employee_id": r["employee_id"], "email": r["email"] or "", "temp_password": pw}
 
 
 # ------------------------------------------------------------------ cost centers
