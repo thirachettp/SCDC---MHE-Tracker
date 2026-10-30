@@ -502,7 +502,7 @@ function render(){
   if(S.view === "guide"){
     app.innerHTML = vGuide();
   } else if(!S.user){
-    app.innerHTML = S.view === "register" ? vRegister() : vLogin();
+    app.innerHTML = S.view === "register" ? vRegister() : (S.view === "setpw" && S.resetFor) ? vSetPw() : vLogin();
   } else if(S.user.must_change_password){
     app.innerHTML = vChangePw(true);
   } else {
@@ -529,7 +529,8 @@ function vLogin(){
       <button type="button" class="btn sm ghost" data-act="guide">${I.info} วิธีใช้งาน</button></div>
     <div class="field"><label class="lbl" for="lE">รหัสพนักงาน</label>
       <input id="lE" name="email" class="inp" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="เช่น 12345" required></div>
-    <div class="field"><label class="lbl" for="lP">รหัสผ่าน</label><input id="lP" name="password" type="password" class="inp" autocomplete="current-password" required></div>
+    <div class="field"><label class="lbl" for="lP">รหัสผ่าน</label><input id="lP" name="password" type="password" class="inp" autocomplete="current-password" required>
+      <div class="hint" style="margin-top:4px">Admin รีเซ็ตรหัสผ่านให้แล้ว? เว้นช่องนี้ว่าง แล้วกดเข้าสู่ระบบ เพื่อตั้งรหัสใหม่</div></div>
     <label class="row" style="font-size:14px;color:var(--ink2);min-height:44px"><input type="checkbox" name="remember" checked style="width:20px;height:20px;accent-color:var(--brand)"> จดจำการเข้าสู่ระบบบนเครื่องนี้</label>
     <button class="btn primary" type="submit" style="height:54px;font-size:17px">เข้าสู่ระบบ</button>
     <div style="text-align:center;font-size:15px;color:var(--muted)">ยังไม่มีบัญชี? <button type="button" class="linkbtn" data-act="to-register">สมัครใช้งาน</button></div>
@@ -594,7 +595,7 @@ const GUIDE = [
   {c:"var(--ok-ink)", bg:"var(--ok-bg)", ic:"check", t:"④ ตรวจสรุป แล้วยืนยัน", d:"ระบบสรุปให้ดูก่อนทุกครั้ง",
    li:["ดูจำนวนรวม สาขาที่ยังไม่กรอก และสาขาที่ไม่เท่าขาออก","กด <b>ยืนยันบันทึก</b> — ยังไม่ครบก็บันทึกได้ กลับมากรอกต่อได้","บันทึก Trip เดิมซ้ำ = แก้ไข ระบบเก็บประวัติว่าใครแก้อะไร"]},
   {c:"var(--ink2)", bg:"var(--soft)", ic:"info", t:"คำถามที่พบบ่อย", d:"",
-   li:["<b>ใครรับสินค้า / รถเข้าประตูไหน?</b> ดูที่เมนู <b>Dashboard</b> — แยกตามประตู ตามผู้รับ หรือตามเวลา","<b>ลืมรหัสผ่าน?</b> แจ้ง Admin ให้รีเซ็ต จะได้รหัสชั่วคราว","<b>เน็ตหลุดระหว่างกรอก?</b> ข้อมูลเก็บไว้ในเครื่อง เปิด Trip เดิมจะกู้คืนให้","<b>สองคนกรอก Trip เดียวกัน?</b> ระบบจะเตือนให้โหลดข้อมูลล่าสุดก่อน",
+   li:["<b>ใครรับสินค้า / รถเข้าประตูไหน?</b> ดูที่เมนู <b>Dashboard</b> — แยกตามประตู ตามผู้รับ หรือตามเวลา","<b>ลืมรหัสผ่าน?</b> แจ้ง Admin ให้รีเซ็ต แล้วใส่รหัสพนักงาน กดเข้าสู่ระบบ (เว้นรหัสผ่านว่าง) → ตั้งรหัสใหม่ได้เลย","<b>เน็ตหลุดระหว่างกรอก?</b> ข้อมูลเก็บไว้ในเครื่อง เปิด Trip เดิมจะกู้คืนให้","<b>สองคนกรอก Trip เดียวกัน?</b> ระบบจะเตือนให้โหลดข้อมูลล่าสุดก่อน",
        "<b>อยากได้ไอคอนบนมือถือ?</b> เปิดเว็บใน Chrome/Safari › “เพิ่มไปยังหน้าจอหลัก”"]},
 ];
 // QR of the app link — for showing a colleague's phone, or printing to stick at the dock
@@ -650,6 +651,16 @@ function vGuide(){
 }
 function openGuide(){ S.guideReturn = S.view; S.guideStep = 0; S.view = "guide"; render(); window.scrollTo(0,0); }
 function closeGuide(){ lsSet("mhe_guide_seen", "1"); S.view = S.guideReturn && S.guideReturn !== "guide" ? S.guideReturn : (S.user ? "leg" : "login"); render(); window.scrollTo(0,0); }
+function vSetPw(){
+  const R = S.resetFor;
+  return `${hdrBack("ตั้งรหัสผ่านใหม่","","to-login")}
+  <form class="main" style="padding:24px;gap:14px" data-form="setpw" novalidate>
+    <div class="banner info">${I.info}<div>Admin รีเซ็ตรหัสผ่านของ <b>${esc(R.name)}</b>${R.emp?` <span class="mono">#${esc(R.emp)}</span>`:""} แล้ว — ตั้งรหัสผ่านใหม่เพื่อเข้าใช้งาน</div></div>
+    <div class="field"><label class="lbl" for="sP">รหัสผ่านใหม่</label><input id="sP" name="new" type="password" class="inp" autocomplete="new-password" required></div>
+    <div class="field"><label class="lbl" for="sP2">ยืนยันรหัสผ่านใหม่</label><input id="sP2" name="new2" type="password" class="inp" autocomplete="new-password" required></div>
+    <button class="btn primary" type="submit" style="height:54px;font-size:17px">บันทึกและเข้าสู่ระบบ</button>
+  </form>`;
+}
 function vChangePw(forced){
   return `<header class="hdr"><div class="grow" style="padding-left:4px"><div class="t">ตั้งรหัสผ่านใหม่</div><div class="ver">${VERSION}</div></div></header>
   <form class="main" style="padding:24px;gap:14px" data-form="changepw" novalidate>
@@ -1611,8 +1622,9 @@ function vUsers(){
       <div style="flex:1;min-width:0"><div class="row" style="gap:6px;flex-wrap:wrap"><span style="font-size:15px;font-weight:700">${esc(u.display_name)}</span>
         <span class="pill ${u.role==="admin"?"warn":"ok"}" style="font-size:11px;padding:1px 8px">${u.role==="admin"?"Admin":"User"}</span>
         ${u.active?"":`<span class="pill bad" style="font-size:11px;padding:1px 8px">ปิดใช้งาน</span>`}
+        ${u.reset_pending?`<span class="pill blue" style="font-size:11px;padding:1px 8px">รอตั้งรหัสใหม่</span>`:""}
         ${u.cost_center?`<span class="hint">${esc(ccLabel(u.cost_center,u.cost_center_name))}</span>`:`<span class="hint" style="color:var(--warn-ink)">ยังไม่มี CC</span>`}</div>
-        <div class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.employee_id?`<span class="mono">#${esc(u.employee_id)}</span> · `:`<span style="color:var(--warn-ink)">ยังไม่มีรหัสพนักงาน</span> · `}${esc(u.email)}</div></div>
+        <div class="hint" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.employee_id?`<span class="mono">#${esc(u.employee_id)}</span>`:`<span style="color:var(--warn-ink)">ยังไม่มีรหัสพนักงาน</span>`}${u.email?` · ${esc(u.email)}`:""}</div></div>
       <button class="sbtn" style="width:44px;height:44px" data-act="user-menu" data-id="${u.id}" aria-label="ตัวเลือกสำหรับ ${esc(u.display_name)}">${I.more}</button></div>`).join("");
   return `${hdrMain("จัดการผู้ใช้")}
   <div style="padding:14px 16px 10px;display:flex;flex-direction:column;gap:10px;background:#fff;border-bottom:1px solid var(--line)">
@@ -1702,9 +1714,10 @@ function userMenu(id){
         await api(`/api/admin/users/${id}`, {method:"PATCH", body:{cost_center: v}});
         if(self){ const m = await api("/api/me"); S.user = m.user; }
       } else if(a === "reset"){
-        const ok = await ask({title:`รีเซ็ตรหัสผ่าน ${u.display_name}?`, body:"ระบบจะสร้างรหัสผ่านชั่วคราว ผู้ใช้ต้องตั้งรหัสผ่านใหม่เมื่อเข้าสู่ระบบ", ok:"รีเซ็ต"}); if(!ok) return;
+        const ok = await ask({title:`รีเซ็ตรหัสผ่าน ${u.display_name}?`, body:`รหัสผ่านเดิมจะใช้ไม่ได้ทันที แล้วให้ผู้ใช้<b>ตั้งรหัสใหม่เอง</b>ที่หน้าเข้าสู่ระบบ ภายใน 24 ชั่วโมง`, ok:"รีเซ็ต"}); if(!ok) return;
         const r = await api(`/api/admin/users/${id}/reset-password`, {method:"POST"});
-        await ask({title:"รหัสผ่านชั่วคราว", body:`ส่งให้ ${esc(r.name)}${r.employee_id?` (#${esc(r.employee_id)})`:""}<br><div class="mono" style="font-size:24px;font-weight:700;padding:12px;background:var(--bg);border-radius:10px;text-align:center;margin-top:8px;user-select:all">${esc(r.temp_password)}</div><div class="hint" style="margin-top:6px">รหัสนี้จะแสดงครั้งเดียว</div>`, ok:"ปิด", cancel:null});
+        const who = r.employee_id || r.email;
+        await ask({title:"รีเซ็ตแล้ว", body:`บอก <b>${esc(r.name)}</b> ให้เปิดแอป แล้วใส่รหัสพนักงาน <b class="mono">${esc(who)}</b> กด <b>เข้าสู่ระบบ</b> (ไม่ต้องใส่รหัสผ่าน)<br>ระบบจะให้ตั้งรหัสผ่านใหม่ทันที · ใช้ได้ภายใน ${r.hours} ชั่วโมง`, ok:"ปิด", cancel:null});
         if(self){ logout(); return; }
       }
       toast("บันทึกแล้ว"); S.users = null; render();
@@ -1720,7 +1733,7 @@ function accountSheet(){
     <div><div style="font-size:18px;font-weight:700">${esc(u.display_name)}</div><div class="hint">${u.employee_id?`#${esc(u.employee_id)} · `:""}${u.role==="admin"?"Admin":"User"}${u.cost_center?` · ${esc(ccLabel(u.cost_center,u.cost_center_name))}`:""}</div></div></div></div>
     <div class="sb" style="padding-bottom:calc(20px + var(--safe-b))">
       <button class="btn ghost" data-a="guide">วิธีใช้งาน</button>
-      <button class="btn ghost" data-a="cc">เปลี่ยน Cost Center</button>
+      <button class="btn primary" data-a="cc">แก้ไขข้อมูลส่วนตัว</button>
       <button class="btn ghost" data-a="pw">เปลี่ยนรหัสผ่าน</button>
       <button class="btn danger" data-a="out">ออกจากระบบ</button>
       <div class="hint mono" style="text-align:center">${VERSION}</div></div></div>`);
@@ -1738,9 +1751,14 @@ function accountSheet(){
 
 async function myCcSheet(){
   try{ S.meta = await api("/api/meta"); }catch(e){}
-  const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="เปลี่ยน Cost Center"><div class="sh"><div class="grab"></div>
-    <div style="font-size:18px;font-weight:700">Cost Center ของฉัน</div></div>
-    <form class="sb" data-form="mycc" novalidate style="padding-bottom:calc(20px + var(--safe-b))">${ccPicker(S.meta.cost_centers||[], S.user.cost_center)}
+  const u = S.user;
+  const ov = layer(`<div class="sheet" role="dialog" aria-modal="true" aria-label="แก้ไขข้อมูลส่วนตัว"><div class="sh"><div class="grab"></div>
+    <div style="font-size:18px;font-weight:700">แก้ไขข้อมูลส่วนตัว</div></div>
+    <form class="sb" data-form="profile" novalidate style="padding-bottom:calc(20px + var(--safe-b))">
+      <div class="field"><label class="lbl" for="pN">ชื่อที่แสดง</label><input id="pN" name="display_name" class="inp" maxlength="60" value="${esc(u.display_name)}" required></div>
+      <div class="field"><div class="lbl">รหัสพนักงาน</div><div class="inp mono" style="display:flex;align-items:center;background:var(--soft);color:var(--ink2)">${esc(u.employee_id||"-")}</div>
+        <div class="hint" style="margin-top:4px">แก้รหัสพนักงานไม่ได้ — ถ้าผิด แจ้ง Admin</div></div>
+      ${ccPicker(S.meta.cost_centers||[], u.cost_center)}
       <button class="btn primary" type="submit">บันทึก</button><button class="btn ghost" type="button" data-close>ยกเลิก</button></form></div>`);
   $("[data-close]", ov).onclick = closeLayer;
 }
@@ -1766,9 +1784,13 @@ document.addEventListener("submit", async e => {
   const btn = f.querySelector("button[type=submit]"); const txt = btn.innerHTML; btn.disabled = true; btn.innerHTML = "กำลังดำเนินการ…";
   try{
     if(f.dataset.form === "login"){
-      if(!fd.email || !fd.password) throw new Error("กรุณากรอกรหัสพนักงาน และรหัสผ่าน");
-      setSession(await api("/api/auth/login", {method:"POST", body:{email:fd.email, password:fd.password, remember:!!fd.remember}, noLogout:true}));
-      afterLogin(); return;
+      if(!fd.email) throw new Error("กรุณากรอกรหัสพนักงาน");
+      const r = await api("/api/auth/login", {method:"POST", body:{email:fd.email, password:fd.password||"", remember:!!fd.remember}, noLogout:true});
+      if(r.reset_required){   // admin reset this account → set a new password right here
+        S.resetFor = {ident: fd.email.trim(), name: r.display_name, emp: r.employee_id, remember: !!fd.remember};
+        S.view = "setpw"; render(); return;
+      }
+      setSession(r); afterLogin(); return;
     }
     if(f.dataset.form === "register"){
       if(!fd.display_name.trim()) throw new Error("กรุณากรอกชื่อที่แสดง");
@@ -1782,6 +1804,19 @@ document.addEventListener("submit", async e => {
     if(f.dataset.form === "mycc"){
       const r = await api("/api/me/cost-center", {method:"PUT", body: ccFromForm(fd)});
       S.user = r.user; closeLayer(); toast("บันทึก Cost Center แล้ว"); render(); return;
+    }
+    if(f.dataset.form === "setpw"){
+      if(!fd.new) throw new Error("กรุณาใส่รหัสผ่านใหม่");
+      if(fd.new !== fd.new2) throw new Error("ยืนยันรหัสผ่านไม่ตรงกัน");
+      const R = S.resetFor;
+      setSession(await api("/api/auth/set-password", {method:"POST", body:{email:R.ident, new:fd.new, remember:R.remember}, noLogout:true}));
+      S.resetFor = null; toast("ตั้งรหัสผ่านใหม่แล้ว"); afterLogin(); return;
+    }
+    if(f.dataset.form === "profile"){
+      const name = (fd.display_name||"").trim();
+      if(!name) throw new Error("กรุณากรอกชื่อที่แสดง");
+      const r = await api("/api/me", {method:"PUT", body:{display_name:name, ...ccFromForm(fd)}});
+      S.user = r.user; closeLayer(); toast("บันทึกข้อมูลแล้ว"); render(); return;
     }
     if(f.dataset.form === "changepw"){
       if(!fd.new) throw new Error("กรุณาใส่รหัสผ่านใหม่");

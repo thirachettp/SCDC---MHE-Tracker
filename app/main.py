@@ -228,21 +228,75 @@ def register(body: RegisterIn, c=Depends(db, scope="function")):
     return {"token": auth.make_token(u["id"], u["token_version"]), "user": _user_out(u, c)}
 
 
-@app.post("/api/auth/login")
-def login(body: LoginIn, c=Depends(db, scope="function")):
-    ident = body.email.strip()
+def _find_login(c, ident):
+    ident = (ident or "").strip()
     u = None
     if ident and "@" not in ident:     # employee ID (older accounts may still use their e-mail)
         u = c.execute("SELECT * FROM users WHERE employee_id <> '' AND lower(employee_id) = lower(%s)",
                       (ident,)).fetchone()
-    if not u:
+    if not u and ident:
         u = c.execute("SELECT * FROM users WHERE email = %s", (_full_email(ident),)).fetchone()
+    return u
+
+
+RESET_HOURS = 24
+
+
+def _reset_open(u):
+    return bool(u and u.get("reset_until") and u["reset_until"] > datetime.now(timezone.utc))
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, c=Depends(db, scope="function")):
+    u = _find_login(c, body.email)
+    if u and u["active"] and _reset_open(u):
+        # Admin reset this account: no password needed — the app asks for a new one right away
+        return {"reset_required": True, "display_name": u["display_name"], "employee_id": u["employee_id"]}
     if not u or not auth.verify_password(body.password, u["password_hash"]):
         raise AppError(401, "รหัสพนักงาน หรือรหัสผ่านไม่ถูกต้อง")
     if not u["active"]:
         raise AppError(403, "บัญชีนี้ถูกปิดการใช้งาน กรุณาติดต่อ Admin")
     c.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (u["id"],))
     return {"token": auth.make_token(u["id"], u["token_version"], body.remember), "user": _user_out(u, c)}
+
+
+class SetPasswordIn(BaseModel):
+    email: str          # employee ID (or e-mail for older accounts), same field as login
+    new: str
+    remember: bool = True
+
+
+@app.post("/api/auth/set-password")
+def set_password_after_reset(body: SetPasswordIn, c=Depends(db, scope="function")):
+    u = _find_login(c, body.email)
+    if not u or not _reset_open(u):
+        raise AppError(400, "บัญชีนี้ไม่ได้อยู่ระหว่างรีเซ็ตรหัสผ่าน หรือหมดเวลาแล้ว กรุณาติดต่อ Admin")
+    if not u["active"]:
+        raise AppError(403, "บัญชีนี้ถูกปิดการใช้งาน กรุณาติดต่อ Admin")
+    _check_password(body.new)
+    r = c.execute(
+        """UPDATE users SET password_hash = %s, must_change_password = FALSE, reset_until = NULL,
+               token_version = token_version + 1, last_login_at = now() WHERE id = %s RETURNING *""",
+        (auth.hash_password(body.new), u["id"])).fetchone()
+    return {"token": auth.make_token(r["id"], r["token_version"], body.remember), "user": _user_out(r, c)}
+
+
+class ProfileIn(BaseModel):
+    display_name: str
+    cost_center: str
+    cost_center_name: str = ""
+
+
+@app.put("/api/me")
+def update_profile(body: ProfileIn, u=Depends(current_user), c=Depends(db, scope="function")):
+    """Users edit their own name and Cost Center. Employee ID stays as registered (Admin can change it)."""
+    name = body.display_name.strip()
+    if not name or len(name) > 60:
+        raise AppError(400, "กรุณากรอกชื่อที่แสดง (ไม่เกิน 60 ตัวอักษร)")
+    cc = _cc_or_create(c, body.cost_center, body.cost_center_name)
+    r = c.execute("UPDATE users SET display_name = %s, cost_center = %s WHERE id = %s RETURNING *",
+                  (name, cc, u["id"])).fetchone()
+    return {"user": _user_out(r, c)}
 
 
 @app.get("/api/me")
@@ -978,7 +1032,8 @@ class UserPatch(BaseModel):
 def users(u=Depends(admin_user), c=Depends(db, scope="function")):
     rows = c.execute(
         """SELECT u.id, u.email, u.display_name, u.employee_id, u.cost_center, COALESCE(cc.name, '') AS cost_center_name,
-                  u.role, u.active, u.created_at, u.last_login_at
+                  u.role, u.active, u.created_at, u.last_login_at,
+                  (u.reset_until IS NOT NULL AND u.reset_until > now()) AS reset_pending
            FROM users u LEFT JOIN cost_centers cc ON cc.code = u.cost_center
            ORDER BY u.active DESC, u.role, u.display_name""").fetchall()
     return {"items": [{**r, "created_at": r["created_at"].isoformat(),
@@ -1022,14 +1077,16 @@ def patch_user(uid: int, body: UserPatch, u=Depends(admin_user), c=Depends(db, s
 
 @app.post("/api/admin/users/{uid}/reset-password")
 def reset_password(uid: int, u=Depends(admin_user), c=Depends(db, scope="function")):
-    pw = auth.random_password(10)
+    # old password stops working and sessions end; the user sets a new one at the login screen
     r = c.execute(
-        """UPDATE users SET password_hash = %s, must_change_password = TRUE,
-               token_version = token_version + 1 WHERE id = %s RETURNING display_name, employee_id, email""",
-        (auth.hash_password(pw), uid)).fetchone()
+        f"""UPDATE users SET password_hash = '', must_change_password = FALSE,
+               reset_until = now() + interval '{RESET_HOURS} hours',
+               token_version = token_version + 1 WHERE id = %s RETURNING display_name, employee_id, email, reset_until""",
+        (uid,)).fetchone()
     if not r:
         raise AppError(404, "ไม่พบผู้ใช้")
-    return {"name": r["display_name"], "employee_id": r["employee_id"], "email": r["email"] or "", "temp_password": pw}
+    return {"name": r["display_name"], "employee_id": r["employee_id"], "email": r["email"] or "",
+            "reset_until": r["reset_until"].isoformat(), "hours": RESET_HOURS}
 
 
 # ------------------------------------------------------------------ cost centers
