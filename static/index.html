@@ -703,7 +703,13 @@ async function refreshMe(){
     if(was !== S.user.role && isStaff()){ toast(`ได้รับสิทธิ์ ${ROLE_LABEL[S.user.role]} แล้ว`); afterLogin(); return true; } }catch(e){}
   return false;
 }
-setInterval(() => { if(S.user && !isStaff() && document.visibilityState === "visible" && !$("#layer").innerHTML) refreshMe().then(ch => { if(!ch) render(); }); }, 30000);
+// no timed polling: a periodic request keeps the Neon compute awake (free-plan quota).
+// refresh when the user comes back to the tab instead, and via the "ตรวจสอบสถานะ" button.
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState !== "visible" || !S.user || $("#layer").innerHTML) return;
+  if(!isStaff()) refreshMe().then(ch => { if(!ch) render(); });
+  else if(S.view === "dash" && S.dash && S.dash.date === bkkDate()) loadDash();
+});
 
 // ================================================================== leg
 function vLeg(){
@@ -1357,10 +1363,6 @@ function dashRender(){
   if(f){ const i = $("#dashQ"); i.focus(); try{ i.setSelectionRange(pos,pos); }catch(e){} }
 }
 const dashSearch = debounce(() => { if(S.view === "dash") dashRender(); }, 200);
-// keep today's board fresh for the dock screen
-setInterval(() => {
-  if(S.view === "dash" && S.dash && S.dash.date === bkkDate() && !$("#layer").innerHTML && document.visibilityState === "visible") loadDash();
-}, 60000);
 
 // ================================================================== detail
 function vDetail(){
